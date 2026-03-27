@@ -103,24 +103,16 @@ export function ShortVideoCard({
             <p className={styles.description}>{video.description}</p>
           </div>
 
-          <button
-            type="button"
-            className={styles.cta}
-            onClick={() => {
-              const element = videoRef.current;
-
-              if (!element) {
-                return;
-              }
-
-              element.currentTime = 0;
-              hasAdvancedRef.current = false;
-              setProgress(0);
-              void element.play().catch(() => undefined);
-            }}
-          >
-            다시 보기
-          </button>
+          <div className={styles.actions}>
+            <a
+              href={`https://m.tv.nate.com/clip/${video.id}`}
+              className={styles.ctaLink}
+              target='_blank'
+              rel='noopener noreferrer'
+            >
+              이 영상 보러가기
+            </a>
+          </div>
         </div>
       </div>
     </article>
