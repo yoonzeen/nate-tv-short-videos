@@ -94,7 +94,6 @@ export function ShortVideoCard({
 
         <div className={styles.metaTop}>
           <span className={styles.pill}>{orderLabel}</span>
-          <span className={styles.pill}>15s Preview</span>
         </div>
 
         <div className={styles.metaBottom}>

@@ -48,6 +48,9 @@
   justify-content: space-between;
   gap: 12px;
   margin-top: 10px;
+  position:absolute;
+  right:18px;
+  top:18px;
 }
 
 .pill {
@@ -68,22 +71,21 @@
 }
 
 .channel {
-  margin-bottom: 8px;
+  margin-bottom: 12px;
   color: rgba(255, 255, 255, 0.85);
-  font-size: 0.92rem;
-  font-weight: 600;
+  font-size: 11px;
 }
 
 .title {
-  font-size: clamp(1.7rem, 5vw, 2.4rem);
-  line-height: 1.08;
+  font-size: 16px;
+  line-height:1.4;
 }
 
 .description {
   max-width: 540px;
-  margin-top: 12px;
+  margin-top: 3px;
   color: rgba(255, 255, 255, 0.8);
-  font-size: 0.98rem;
+  font-size: 12px;
   line-height: 1.5;
 }
 
