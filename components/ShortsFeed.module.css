@@ -2,6 +2,9 @@
   height: 100svh;
   overflow-y: auto;
   scroll-snap-type: y mandatory;
+  touch-action: pan-y;
+  overscroll-behavior-y: contain;
+  -webkit-overflow-scrolling: touch;
   background:
     radial-gradient(circle at top, rgba(130, 81, 255, 0.22), transparent 30%),
     #050505;

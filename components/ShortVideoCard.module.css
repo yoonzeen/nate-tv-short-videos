@@ -3,9 +3,17 @@
   width: 100%;
   height: 100%;
   overflow: hidden;
+  cursor: pointer;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
   background:
     linear-gradient(180deg, rgba(0, 0, 0, 0.16) 0%, rgba(0, 0, 0, 0.65) 100%),
     #111;
+}
+
+.card:focus,
+.card:focus-visible {
+  outline: none;
 }
 
 .video {
@@ -13,6 +21,7 @@
   height: 100%;
   object-fit: cover;
   background: #111;
+  pointer-events: none;
 }
 
 .overlay {
@@ -25,6 +34,29 @@
   background:
     linear-gradient(to bottom, rgba(0, 0, 0, 0.14), rgba(0, 0, 0, 0.68)),
     linear-gradient(to top, rgba(0, 0, 0, 0.58), transparent 35%);
+}
+
+.playbackIndicator {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 72px;
+  height: 72px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.44);
+  color: #ffffff;
+  transform: translate(-50%, -50%);
+  backdrop-filter: blur(8px);
+  pointer-events: none;
+}
+
+.playbackIcon {
+  width: 32px;
+  height: 32px;
 }
 
 .progressTrack {
@@ -45,12 +77,14 @@
 
 .metaTop {
   display: flex;
+  align-items: center;
   justify-content: space-between;
   gap: 12px;
   margin-top: 10px;
-  position:absolute;
-  right:18px;
-  top:18px;
+  position: absolute;
+  left: 18px;
+  right: 18px;
+  top: 18px;
 }
 
 .pill {
@@ -60,6 +94,39 @@
   background: rgba(0, 0, 0, 0.28);
   backdrop-filter: blur(6px);
   font-size: 0.82rem;
+  position:absolute;
+  right:0;
+  top:0;
+}
+
+.soundButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.28);
+  color: #ffffff;
+  font: inherit;
+  font-size: 0.82rem;
+  cursor: pointer;
+  backdrop-filter: blur(6px);
+  position:absolute; 
+  right:0px;
+  top:60px;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.soundButton:hover {
+  background: rgba(255, 255, 255, 0.16);
+}
+
+.soundIcon {
+  width: 20px;
+  height: 20px;
 }
 
 .metaBottom {
@@ -124,6 +191,7 @@
   font-weight: 700;
   white-space: nowrap;
   backdrop-filter: blur(6px);
+  -webkit-tap-highlight-color: transparent;
 }
 
 .ctaLink:hover {
