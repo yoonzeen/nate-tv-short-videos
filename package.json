@@ -8,7 +8,9 @@
     "start": "next start",
     "lint": "eslint",
     "build:check": "next build && echo Build completed successfully",
-    "deploy": "npm run build && npm run start"
+    "deploy": "npm run build && npm run start",
+    "vercel:build": "next build",
+    "vercel:dev": "next dev"
   },
   "dependencies": {
     "next": "16.2.1",

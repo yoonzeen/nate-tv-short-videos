@@ -27,6 +27,8 @@ body {
 body {
   display: flex;
   flex-direction: column;
+  justify-content: center;
+  align-items: center;
   color: var(--foreground);
   background: var(--background);
   font-family:
@@ -38,6 +40,12 @@ body {
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   letter-spacing: -0.02em;
+}
+
+/* 전체 앱 컨테이너 최대 너비 500px, 가운데 정렬 */
+body > * {
+  width: 100%;
+  max-width: 500px;
 }
 
 main {
