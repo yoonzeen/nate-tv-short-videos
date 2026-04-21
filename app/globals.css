@@ -1,3 +1,5 @@
+@import url("//fonts.googleapis.com/earlyaccess/notosanskr.css");
+
 :root {
   --background: #050505;
   --foreground: #f8f8f8;
@@ -27,9 +29,15 @@ body {
   flex-direction: column;
   color: var(--foreground);
   background: var(--background);
-  font-family: var(--font-geist-sans), Arial, Helvetica, sans-serif;
+  font-family:
+    "Noto Sans KR",
+    var(--font-geist-sans),
+    Arial,
+    Helvetica,
+    sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  letter-spacing: -0.02em;
 }
 
 main {
