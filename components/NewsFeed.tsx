@@ -423,7 +423,7 @@ export function NewsFeed({ items }: NewsFeedProps) {
                       target="_blank"
                       rel="noopener noreferrer"
                     >
-                      기사 보러가기
+                      기사 보러 가기
                     </a>
                   </>
                 )}
