@@ -16,6 +16,9 @@ export function ShortsFeed({ videos }: ShortsFeedProps) {
   const itemRefs = useRef<Array<HTMLElement | null>>([]);
   const animationFrameRef = useRef<number | null>(null);
   const touchStartYRef = useRef<number | null>(null);
+  const transitionTimeoutRef = useRef<number | null>(null);
+  const activeIndexRef = useRef(0);
+  const navigationLockedRef = useRef(false);
 
   const normalizeIndex = useCallback(
     (index: number) => {
@@ -31,11 +34,27 @@ export function ShortsFeed({ videos }: ShortsFeedProps) {
   const goToIndex = useCallback(
     (index: number) => {
       const safeIndex = normalizeIndex(index);
+      const currentIndex = activeIndexRef.current;
+
+      if (safeIndex === currentIndex || navigationLockedRef.current) {
+        return;
+      }
+
+      navigationLockedRef.current = true;
       setActiveIndex(safeIndex);
       itemRefs.current[safeIndex]?.scrollIntoView({
         behavior: "smooth",
         block: "start",
       });
+
+      if (transitionTimeoutRef.current !== null) {
+        window.clearTimeout(transitionTimeoutRef.current);
+      }
+
+      transitionTimeoutRef.current = window.setTimeout(() => {
+        navigationLockedRef.current = false;
+        transitionTimeoutRef.current = null;
+      }, 300);
     },
     [normalizeIndex],
   );
@@ -89,6 +108,10 @@ export function ShortsFeed({ videos }: ShortsFeedProps) {
   }, [updateActiveIndex]);
 
   useEffect(() => {
+    activeIndexRef.current = activeIndex;
+  }, [activeIndex]);
+
+  useEffect(() => {
     if (videos.length === 0) {
       return;
     }
@@ -101,6 +124,14 @@ export function ShortsFeed({ videos }: ShortsFeedProps) {
       window.cancelAnimationFrame(initialFrame);
     };
   }, [goToIndex, videos.length]);
+
+  useEffect(() => {
+    return () => {
+      if (transitionTimeoutRef.current !== null) {
+        window.clearTimeout(transitionTimeoutRef.current);
+      }
+    };
+  }, []);
 
   const handleScroll = () => {
     if (animationFrameRef.current !== null) {

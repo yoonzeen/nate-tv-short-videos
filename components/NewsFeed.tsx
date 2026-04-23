@@ -98,6 +98,9 @@ export function NewsFeed({
   const rafRef = useRef<number | null>(null);
   const scrollRafRef = useRef<number | null>(null);
   const toastTimeoutRef = useRef<number | null>(null);
+  const transitionTimeoutRef = useRef<number | null>(null);
+  const activeIndexRef = useRef(0);
+  const navigationLockedRef = useRef(false);
   const hasRestoredInitialItemRef = useRef(false);
 
   const commitOrdered = useCallback(
@@ -221,16 +224,29 @@ export function NewsFeed({
   const goToIndex = useCallback(
     (index: number) => {
       const safe = normalizeIndex(index);
+      const current = activeIndexRef.current;
+
+      if (safe === current || navigationLockedRef.current) {
+        return;
+      }
+
+      navigationLockedRef.current = true;
       setIsTransitioning(true);
       setActiveIndex(safe);
       itemRefs.current[safe]?.scrollIntoView({
         behavior: "smooth",
         block: "start",
       });
-      
-      // 전환 완료 후 상태 리셋
-      setTimeout(() => {
+
+      if (transitionTimeoutRef.current !== null) {
+        window.clearTimeout(transitionTimeoutRef.current);
+      }
+
+      // 전환 완료 전까지는 추가 입력을 막아 한 번에 한 장만 이동시킨다.
+      transitionTimeoutRef.current = window.setTimeout(() => {
+        navigationLockedRef.current = false;
         setIsTransitioning(false);
+        transitionTimeoutRef.current = null;
       }, 300); // CSS transition과 동일한 시간
     },
     [normalizeIndex],
@@ -358,6 +374,10 @@ export function NewsFeed({
   }, [items]);
 
   useEffect(() => {
+    activeIndexRef.current = activeIndex;
+  }, [activeIndex]);
+
+  useEffect(() => {
     if (!hasRestoredInitialItemRef.current) {
       return;
     }
@@ -375,6 +395,10 @@ export function NewsFeed({
     return () => {
       if (toastTimeoutRef.current !== null) {
         window.clearTimeout(toastTimeoutRef.current);
+      }
+
+      if (transitionTimeoutRef.current !== null) {
+        window.clearTimeout(transitionTimeoutRef.current);
       }
     };
   }, []);

@@ -56,7 +56,7 @@ export default async function NewsPage({ searchParams }: Props) {
   let initialItems: Awaited<ReturnType<typeof fetchNateRankedNewsListOnly>> = [];
 
   try {
-    initialItems = await fetchNateRankedNewsListOnly();
+    initialItems = await fetchNateRankedNewsListOnly(undefined, 1);
   } catch (error) {
     console.error("Failed to load initial news list", error);
   }

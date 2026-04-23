@@ -307,7 +307,11 @@ export async function fetchNateRankedNewsListOnly(
   date = getTodayInSeoul(),
   maxItems = 20,
 ) {
-  const quickPages = ["", "&page=1"];
+  const pageCount = Math.max(1, Math.ceil(maxItems / 10));
+  const quickPages = Array.from(
+    { length: pageCount },
+    (_, index) => (index === 0 ? "" : `&page=${index}`),
+  );
   const htmlPages = await Promise.all(
     quickPages.map((pageParam) =>
       fetchNateDocument(`${NATE_MOBILE_RANK_URL}&date=${date}${pageParam}`),
