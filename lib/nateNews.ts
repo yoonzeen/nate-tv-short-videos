@@ -301,3 +301,91 @@ export async function fetchNateRankedNews(date = getTodayInSeoul()) {
   
   return itemsWithAds;
 }
+
+// 빠른 로딩을 위한 간단한 버전 (상세 정보 없이)
+export async function fetchNateRankedNewsSimple(date = getTodayInSeoul()) {
+  const items: NateNewsItem[] = [];
+  const seenArticleIds = new Set<string>();
+
+  // 처음 2페이지만 빠르게 가져오기 (약 20개 기사)
+  const quickPages = ["", "&page=1"];
+  
+  for (const pageParam of quickPages) {
+    try {
+      const html = await fetchNateDocument(`${NATE_MOBILE_RANK_URL}&date=${date}${pageParam}`);
+      
+      for (const match of html.matchAll(ITEM_PATTERN)) {
+        const link = normalizeUrl(decodeHtmlEntities(match[1] ?? ""));
+        const articleId = getArticleId(link);
+        const rank = Number.parseInt(match[2] ?? "", 10);
+        const img = normalizeUrl(decodeHtmlEntities(match[3] ?? ""));
+        const title = cleanTitle(match[4] ?? "");
+
+        if (
+          !articleId ||
+          seenArticleIds.has(articleId) ||
+          !link ||
+          !img ||
+          !title ||
+          Number.isNaN(rank)
+        ) {
+          continue;
+        }
+
+        seenArticleIds.add(articleId);
+        items.push({
+          id: articleId,
+          rank,
+          title,
+          link,
+          img,
+          sourceName: null,
+          topComment: null,
+          recommendationCount: null,
+        });
+      }
+    } catch (error) {
+      console.error(`Failed to fetch quick page ${pageParam}:`, error);
+      continue;
+    }
+  }
+
+  // 정렬하고 처음 10개 기사는 상세 정보 포함
+  const sortedItems = items.sort((a, b) => a.rank - b.rank).slice(0, 20);
+  
+  // 처음 10개 기사에 대해서는 상세 정보 가져오기
+  const enrichedItems = await Promise.all(
+    sortedItems.map(async (item, index) => {
+      if (index < 10) {
+        // 처음 10개만 상세 정보 포함
+        try {
+          const details = await fetchArticleDetails(item.link);
+          return {
+            ...item,
+            ...details,
+          };
+        } catch (error) {
+          console.error("Failed to enrich quick news item", item.link, error);
+          return item;
+        }
+      }
+      return item; // 나머지는 기본 정보만
+    })
+  );
+  
+  // 광고 삽입
+  const itemsWithAds: NateNewsItem[] = [];
+  let adCounter = 1;
+  
+  for (let i = 0; i < enrichedItems.length; i++) {
+    itemsWithAds.push(enrichedItems[i]);
+    
+    // 10의 배수 위치 다음에 광고 삽입
+    if ((i + 1) % 10 === 0) {
+      itemsWithAds.push(createAdItem(adCounter));
+      adCounter++;
+    }
+  }
+  
+  return itemsWithAds;
+}

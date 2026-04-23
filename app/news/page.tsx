@@ -9,39 +9,10 @@ type Props = {
 };
 
 export async function generateMetadata({ searchParams }: Props): Promise<Metadata> {
-  const items = await fetchNateRankedNews();
-  const articleId = searchParams.id;
-  
-  // 기본값: 첫 번째 뉴스 기사 사용
-  const firstNewsArticle = items.find(item => !item.isAd);
-  let title = "NATE News Shorts";
-  let description = firstNewsArticle?.title || "네이트 뉴스의 최신 관심 기사를 숏폼으로 만나보세요";
-  let imageUrl = "/images/ad-banner.png";
-  
-  // 첫 번째 뉴스 기사의 이미지를 기본 이미지로 사용
-  if (firstNewsArticle) {
-    if (firstNewsArticle.img.startsWith('http')) {
-      imageUrl = firstNewsArticle.img;
-    } else {
-      imageUrl = `https://thumbnews.nateimg.co.kr/mnews300x166/${firstNewsArticle.img}`;
-    }
-  }
-  
-  // URL에 특정 기사 ID가 있는 경우 해당 기사 정보 사용
-  if (articleId) {
-    const currentArticle = items.find(item => item.id === articleId && !item.isAd);
-    if (currentArticle) {
-      title = "NATE News Shorts";
-      description = currentArticle.title;
-      
-      // 현재 기사의 이미지 URL 처리
-      if (currentArticle.img.startsWith('http')) {
-        imageUrl = currentArticle.img;
-      } else {
-        imageUrl = `https://thumbnews.nateimg.co.kr/mnews300x166/${currentArticle.img}`;
-      }
-    }
-  }
+  // 기본 메타데이터 (로딩 속도 향상을 위해 API 호출 없이 기본값 사용)
+  const title = "NATE News Shorts";
+  const description = "네이트 뉴스의 최신 관심 기사를 숏폼으로 만나보세요";
+  const imageUrl = "/og-image.png";
 
   return {
     title,
@@ -52,8 +23,8 @@ export async function generateMetadata({ searchParams }: Props): Promise<Metadat
       images: [
         {
           url: imageUrl,
-          width: 300,
-          height: 200,
+          width: 1200,
+          height: 630,
           alt: description,
         },
       ],
@@ -69,8 +40,6 @@ export async function generateMetadata({ searchParams }: Props): Promise<Metadat
   };
 }
 
-export default async function NewsPage({ searchParams }: Props) {
-  const items = await fetchNateRankedNews();
-
-  return <NewsFeed items={items} />;
+export default function NewsPage({ searchParams }: Props) {
+  return <NewsFeed />;
 }

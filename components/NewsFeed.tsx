@@ -24,13 +24,16 @@ type NewsItem = {
 };
 
 type NewsFeedProps = {
-  items: NewsItem[];
+  items?: NewsItem[];
 };
 
-export function NewsFeed({ items }: NewsFeedProps) {
+export function NewsFeed({ items: initialItems }: NewsFeedProps) {
+  const [items, setItems] = useState<NewsItem[]>(initialItems || []);
+  const [loading, setLoading] = useState(!initialItems || initialItems.length === 0);
   const [activeIndex, setActiveIndex] = useState(0);
   const [progress, setProgress] = useState(0);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [isTransitioning, setIsTransitioning] = useState(false);
   const feedRef = useRef<HTMLElement | null>(null);
   const itemRefs = useRef<Array<HTMLElement | null>>([]);
   const touchStartYRef = useRef<number | null>(null);
@@ -39,6 +42,38 @@ export function NewsFeed({ items }: NewsFeedProps) {
   const scrollRafRef = useRef<number | null>(null);
   const toastTimeoutRef = useRef<number | null>(null);
   const hasRestoredInitialItemRef = useRef(false);
+
+  // 데이터 로딩
+  useEffect(() => {
+    if (items.length === 0 && loading) {
+      const loadData = async () => {
+        try {
+          // 빠른 버전과 전체 버전을 동시에 시작
+          const quickPromise = fetch('/api/news?quick=true', { cache: 'no-store' });
+          const fullPromise = fetch('/api/news', { cache: 'no-store' });
+          
+          // 먼저 빠른 버전 결과 표시
+          const quickResponse = await quickPromise;
+          const quickData = await quickResponse.json();
+          setItems(quickData);
+          setLoading(false);
+          
+          // 전체 데이터가 로드되면 교체
+          try {
+            const fullResponse = await fullPromise;
+            const fullData = await fullResponse.json();
+            setItems(fullData);
+          } catch (error) {
+            console.error('Failed to load full news data:', error);
+          }
+        } catch (error) {
+          console.error('Failed to load news:', error);
+          setLoading(false);
+        }
+      };
+      loadData();
+    }
+  }, [items.length, loading]);
 
   const normalizeIndex = useCallback(
     (index: number) => {
@@ -61,11 +96,17 @@ export function NewsFeed({ items }: NewsFeedProps) {
   const goToIndex = useCallback(
     (index: number) => {
       const safe = normalizeIndex(index);
+      setIsTransitioning(true);
       setActiveIndex(safe);
       itemRefs.current[safe]?.scrollIntoView({
         behavior: "smooth",
         block: "start",
       });
+      
+      // 전환 완료 후 상태 리셋
+      setTimeout(() => {
+        setIsTransitioning(false);
+      }, 300); // CSS transition과 동일한 시간
     },
     [normalizeIndex],
   );
@@ -73,7 +114,7 @@ export function NewsFeed({ items }: NewsFeedProps) {
   const updateUrlWithId = useCallback((id: string) => {
     const url = new URL(window.location.href);
     url.searchParams.set("id", id);
-    window.history.replaceState({}, "", url);
+    window.history.replaceState(null, document.title, url);
   }, []);
 
   const getShareUrl = useCallback((id: string) => {
@@ -295,6 +336,29 @@ export function NewsFeed({ items }: NewsFeedProps) {
     goToIndex(activeIndex - 1);
   };
 
+  const handleWheel = useCallback((event: React.WheelEvent) => {
+    event.preventDefault();
+    
+    const { deltaY } = event;
+    
+    // 휠 감도 조정 (임계값)
+    if (Math.abs(deltaY) < 30) {
+      return;
+    }
+    
+    if (deltaY > 0) {
+      // 아래로 스크롤 - 다음 뉴스
+      goToIndex(activeIndex + 1);
+    } else {
+      // 위로 스크롤 - 이전 뉴스
+      goToIndex(activeIndex - 1);
+    }
+  }, [activeIndex, goToIndex]);
+
+  if (loading) {
+    return <main className={styles.empty}>뉴스를 불러오는 중...</main>;
+  }
+
   if (items.length === 0) {
     return <main className={styles.empty}>표시할 뉴스 카드가 없습니다.</main>;
   }
@@ -306,6 +370,7 @@ export function NewsFeed({ items }: NewsFeedProps) {
       onScroll={handleScroll}
       onTouchStart={handleTouchStart}
       onTouchEnd={handleTouchEnd}
+      onWheel={handleWheel}
     >
       <div className={styles.topOverlay}>
         <div className={styles.brandRow}>
@@ -342,8 +407,10 @@ export function NewsFeed({ items }: NewsFeedProps) {
                     : styles.thumb
                 }
                 style={
-                  index === activeIndex
+                  index === activeIndex && !isTransitioning
                     ? { animationDuration: `${SLIDE_DURATION_MS}ms` }
+                    : index === activeIndex && isTransitioning
+                    ? { animationPlayState: 'paused' }
                     : undefined
                 }
                 src={item.img}
@@ -395,9 +462,14 @@ export function NewsFeed({ items }: NewsFeedProps) {
                 ) : (
                   // 일반 뉴스 아이템 렌더링
                   <>
+                    {/* 언론사 - 스켈레톤 또는 실제 데이터 */}
                     {item.sourceName ? (
                       <p className={styles.publisher}>{item.sourceName}</p>
-                    ) : null}
+                    ) : (
+                      <div className={`${styles.skeleton} ${styles.skeletonPublisher}`}></div>
+                    )}
+                    
+                    {/* 추천수 - 스켈레톤 또는 실제 데이터 */}
                     {item.recommendationCount !== null ? (
                       <div className={styles.recommendBadge}>
                         <span className={styles.recommendIcon} aria-hidden="true">
@@ -407,8 +479,13 @@ export function NewsFeed({ items }: NewsFeedProps) {
                           {item.recommendationCount.toLocaleString("ko-KR")}
                         </span>
                       </div>
-                    ) : null}
+                    ) : (
+                      <div className={`${styles.skeleton} ${styles.skeletonRecommendBadge}`}></div>
+                    )}
+                    
                     <h1 className={styles.title}>{item.title}</h1>
+                    
+                    {/* 댓글 - 스켈레톤 또는 실제 데이터 */}
                     {item.topComment ? (
                       <div className={styles.commentInline}>
                         <span className={styles.commentIcon} aria-hidden="true">
@@ -416,7 +493,9 @@ export function NewsFeed({ items }: NewsFeedProps) {
                         </span>
                         <p className={styles.commentText}>{item.topComment}</p>
                       </div>
-                    ) : null}
+                    ) : (
+                      <div className={`${styles.skeleton} ${styles.skeletonComment}`}></div>
+                    )}
                     <a
                       href={item.link}
                       className={styles.cta}

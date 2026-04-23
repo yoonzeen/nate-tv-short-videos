@@ -14,7 +14,10 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   title: "NateTV Shorts",
-  description: "15초 미리보기 기반의 세로형 쇼츠 플레이어",
+  description: "세상의 속도, 네이트 뉴스",
+  icons: {
+    icon: '/favicon.ico',
+  },
 };
 
 export default function RootLayout({
