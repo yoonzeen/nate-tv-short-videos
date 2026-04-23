@@ -11,6 +11,22 @@
   scrollbar-width: none;
 }
 
+.feed::after {
+  content: "";
+  position: fixed;
+  left: 50%;
+  bottom: 0;
+  z-index: 9;
+  width: min(100%, 500px);
+  height: calc(45px + env(safe-area-inset-bottom, 0px));
+  transform: translateX(-50%);
+  pointer-events: none;
+  background:
+    linear-gradient(to top, rgba(5, 5, 5, 0.96), rgba(5, 5, 5, 0.58) 52%, transparent);
+  -webkit-backdrop-filter: blur(14px);
+  backdrop-filter: blur(14px);
+}
+
 .feed::-webkit-scrollbar {
   display: none;
 }
