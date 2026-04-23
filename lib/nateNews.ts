@@ -302,6 +302,70 @@ export async function fetchNateRankedNews(date = getTodayInSeoul()) {
   return itemsWithAds;
 }
 
+/** 랭킹 HTML만 병렬 수집(기사 상세 없음). 첫 페인트·SSR용. */
+export async function fetchNateRankedNewsListOnly(
+  date = getTodayInSeoul(),
+  maxItems = 20,
+) {
+  const quickPages = ["", "&page=1"];
+  const htmlPages = await Promise.all(
+    quickPages.map((pageParam) =>
+      fetchNateDocument(`${NATE_MOBILE_RANK_URL}&date=${date}${pageParam}`),
+    ),
+  );
+
+  const items: NateNewsItem[] = [];
+  const seenArticleIds = new Set<string>();
+
+  for (const html of htmlPages) {
+    for (const match of html.matchAll(ITEM_PATTERN)) {
+      const link = normalizeUrl(decodeHtmlEntities(match[1] ?? ""));
+      const articleId = getArticleId(link);
+      const rank = Number.parseInt(match[2] ?? "", 10);
+      const img = normalizeUrl(decodeHtmlEntities(match[3] ?? ""));
+      const title = cleanTitle(match[4] ?? "");
+
+      if (
+        !articleId ||
+        seenArticleIds.has(articleId) ||
+        !link ||
+        !img ||
+        !title ||
+        Number.isNaN(rank)
+      ) {
+        continue;
+      }
+
+      seenArticleIds.add(articleId);
+      items.push({
+        id: articleId,
+        rank,
+        title,
+        link,
+        img,
+        sourceName: null,
+        topComment: null,
+        recommendationCount: null,
+      });
+    }
+  }
+
+  const sortedItems = items.sort((a, b) => a.rank - b.rank).slice(0, maxItems);
+  const itemsWithAds: NateNewsItem[] = [];
+  let adCounter = 1;
+
+  for (let i = 0; i < sortedItems.length; i++) {
+    itemsWithAds.push(sortedItems[i]);
+
+    if ((i + 1) % 10 === 0) {
+      itemsWithAds.push(createAdItem(adCounter));
+      adCounter++;
+    }
+  }
+
+  return itemsWithAds;
+}
+
 // 빠른 로딩을 위한 간단한 버전 (상세 정보 없이)
 export async function fetchNateRankedNewsSimple(date = getTodayInSeoul()) {
   const items: NateNewsItem[] = [];
@@ -309,11 +373,15 @@ export async function fetchNateRankedNewsSimple(date = getTodayInSeoul()) {
 
   // 처음 2페이지만 빠르게 가져오기 (약 20개 기사)
   const quickPages = ["", "&page=1"];
-  
-  for (const pageParam of quickPages) {
+
+  const htmlPages = await Promise.all(
+    quickPages.map((pageParam) =>
+      fetchNateDocument(`${NATE_MOBILE_RANK_URL}&date=${date}${pageParam}`),
+    ),
+  );
+
+  for (const html of htmlPages) {
     try {
-      const html = await fetchNateDocument(`${NATE_MOBILE_RANK_URL}&date=${date}${pageParam}`);
-      
       for (const match of html.matchAll(ITEM_PATTERN)) {
         const link = normalizeUrl(decodeHtmlEntities(match[1] ?? ""));
         const articleId = getArticleId(link);
@@ -345,8 +413,7 @@ export async function fetchNateRankedNewsSimple(date = getTodayInSeoul()) {
         });
       }
     } catch (error) {
-      console.error(`Failed to fetch quick page ${pageParam}:`, error);
-      continue;
+      console.error("Failed to parse quick rank page:", error);
     }
   }
 

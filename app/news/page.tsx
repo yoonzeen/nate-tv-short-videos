@@ -1,17 +1,25 @@
 import { NewsFeed } from "@/components/NewsFeed";
-import { fetchNateRankedNews } from "@/lib/nateNews";
-import type { Metadata } from 'next';
+import { fetchNateRankedNewsListOnly } from "@/lib/nateNews";
+import type { Metadata } from "next";
 
 export const dynamic = "force-dynamic";
 
+type PageSearchParams = { id?: string };
+
 type Props = {
-  searchParams: { id?: string };
+  searchParams: Promise<PageSearchParams> | PageSearchParams;
 };
 
-export async function generateMetadata({ searchParams }: Props): Promise<Metadata> {
+async function resolveSearchParams(
+  sp: Promise<PageSearchParams> | PageSearchParams,
+): Promise<PageSearchParams> {
+  return await Promise.resolve(sp);
+}
+
+export async function generateMetadata(): Promise<Metadata> {
   // 기본 메타데이터 (로딩 속도 향상을 위해 API 호출 없이 기본값 사용)
   const title = "NATE News Shorts";
-  const description = "네이트 뉴스의 최신 관심 기사를 숏폼으로 만나보세요";
+  const description = "세상의 속도, 네이트 뉴스";
   const imageUrl = "/og-image.png";
 
   return {
@@ -40,6 +48,18 @@ export async function generateMetadata({ searchParams }: Props): Promise<Metadat
   };
 }
 
-export default function NewsPage({ searchParams }: Props) {
-  return <NewsFeed />;
+export default async function NewsPage({ searchParams }: Props) {
+  const sp = await resolveSearchParams(searchParams);
+  const leadArticleId =
+    typeof sp.id === "string" && sp.id.length > 0 ? sp.id : undefined;
+
+  let initialItems: Awaited<ReturnType<typeof fetchNateRankedNewsListOnly>> = [];
+
+  try {
+    initialItems = await fetchNateRankedNewsListOnly();
+  } catch (error) {
+    console.error("Failed to load initial news list", error);
+  }
+
+  return <NewsFeed items={initialItems} leadArticleId={leadArticleId} />;
 }

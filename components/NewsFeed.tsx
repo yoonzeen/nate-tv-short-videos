@@ -9,7 +9,9 @@ import {
 } from "react";
 import styles from "./IssuePlusFeed.module.css";
 
-const SLIDE_DURATION_MS = 15_000;
+const SLIDE_DURATION_MS = 10_000;
+/** 관심 랭킹 상한(표기용 분모) */
+const NATE_RANKING_TOTAL = 100;
 
 type NewsItem = {
   id: string;
@@ -25,11 +27,66 @@ type NewsItem = {
 
 type NewsFeedProps = {
   items?: NewsItem[];
+  leadArticleId?: string;
 };
 
-export function NewsFeed({ items: initialItems }: NewsFeedProps) {
-  const [items, setItems] = useState<NewsItem[]>(initialItems || []);
-  const [loading, setLoading] = useState(!initialItems || initialItems.length === 0);
+/** `?id=` 기사를 맨 앞에 두고, 나머지는 원래 순서(해당 기사 한 번만) */
+function reorderWithLeadArticleId(
+  leadId: string | undefined,
+  list: NewsItem[],
+): NewsItem[] {
+  if (!leadId || list.length === 0) {
+    return list;
+  }
+
+  const idx = list.findIndex((item) => !item.isAd && item.id === leadId);
+
+  if (idx <= 0) {
+    return list;
+  }
+
+  const next = [...list];
+  const [picked] = next.splice(idx, 1);
+
+  return [picked, ...next];
+}
+
+function isLeadArticleFirst(
+  leadId: string | undefined,
+  list: NewsItem[],
+): boolean {
+  if (!leadId || list.length === 0) {
+    return false;
+  }
+
+  const first = list[0];
+
+  return Boolean(first && !first.isAd && first.id === leadId);
+}
+
+export function NewsFeed({
+  items: initialItems,
+  leadArticleId: leadArticleIdProp,
+}: NewsFeedProps) {
+  const leadArticleId =
+    typeof leadArticleIdProp === "string" && leadArticleIdProp.length > 0
+      ? leadArticleIdProp
+      : undefined;
+
+  const [items, setItems] = useState<NewsItem[]>(() =>
+    reorderWithLeadArticleId(leadArticleId, initialItems ?? []),
+  );
+  const [deepLinkFetchDone, setDeepLinkFetchDone] = useState(() => {
+    if (!leadArticleId) {
+      return true;
+    }
+
+    return isLeadArticleFirst(
+      leadArticleId,
+      reorderWithLeadArticleId(leadArticleId, initialItems ?? []),
+    );
+  });
+  const [loading, setLoading] = useState(!(initialItems && initialItems.length > 0));
   const [activeIndex, setActiveIndex] = useState(0);
   const [progress, setProgress] = useState(0);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
@@ -43,37 +100,105 @@ export function NewsFeed({ items: initialItems }: NewsFeedProps) {
   const toastTimeoutRef = useRef<number | null>(null);
   const hasRestoredInitialItemRef = useRef(false);
 
-  // 데이터 로딩
+  const commitOrdered = useCallback(
+    (raw: NewsItem[]) => {
+      setItems(reorderWithLeadArticleId(leadArticleId, raw));
+    },
+    [leadArticleId],
+  );
+
+  // SSR로 목록이 없을 때만 클라이언트에서 요청
   useEffect(() => {
-    if (items.length === 0 && loading) {
-      const loadData = async () => {
-        try {
-          // 빠른 버전과 전체 버전을 동시에 시작
-          const quickPromise = fetch('/api/news?quick=true', { cache: 'no-store' });
-          const fullPromise = fetch('/api/news', { cache: 'no-store' });
-          
-          // 먼저 빠른 버전 결과 표시
-          const quickResponse = await quickPromise;
-          const quickData = await quickResponse.json();
-          setItems(quickData);
-          setLoading(false);
-          
-          // 전체 데이터가 로드되면 교체
-          try {
-            const fullResponse = await fullPromise;
-            const fullData = await fullResponse.json();
-            setItems(fullData);
-          } catch (error) {
-            console.error('Failed to load full news data:', error);
-          }
-        } catch (error) {
-          console.error('Failed to load news:', error);
-          setLoading(false);
-        }
-      };
-      loadData();
+    if (initialItems && initialItems.length > 0) {
+      return;
     }
-  }, [items.length, loading]);
+    if (!loading || items.length > 0) {
+      return;
+    }
+
+    const loadData = async () => {
+      try {
+        const quickPromise = fetch("/api/news?quick=true", { cache: "no-store" });
+        const fullPromise = fetch("/api/news", { cache: "no-store" });
+
+        const quickData = (await (await quickPromise).json()) as NewsItem[];
+        commitOrdered(quickData);
+        setLoading(false);
+
+        const fullData = (await (await fullPromise).json()) as NewsItem[];
+        commitOrdered(fullData);
+      } catch (error) {
+        console.error("Failed to load news:", error);
+        setLoading(false);
+      } finally {
+        setDeepLinkFetchDone(true);
+      }
+    };
+
+    void loadData();
+  }, [initialItems, loading, items.length, commitOrdered]);
+
+  // SSR 직후: quick·full 병렬 — quick이 먼저 오면 스켈레톤이 빨리 채워짐
+  useEffect(() => {
+    if (!initialItems?.length) {
+      return;
+    }
+
+    const controller = new AbortController();
+    const { signal } = controller;
+    let cancelled = false;
+
+    const applyIfArray = (data: unknown) => {
+      if (Array.isArray(data)) {
+        commitOrdered(data as NewsItem[]);
+      }
+    };
+
+    const quickRequest = fetch("/api/news?quick=true", { cache: "no-store", signal })
+      .then((response) => {
+        if (!response.ok) {
+          throw new Error(`quick ${response.status}`);
+        }
+
+        return response.json();
+      })
+      .then(applyIfArray)
+      .catch((error: unknown) => {
+        if (error instanceof Error && error.name === "AbortError") {
+          return;
+        }
+
+        console.error("Failed to load quick news:", error);
+      });
+
+    const fullRequest = fetch("/api/news", { cache: "no-store", signal })
+      .then((response) => {
+        if (!response.ok) {
+          throw new Error(`full ${response.status}`);
+        }
+
+        return response.json();
+      })
+      .then(applyIfArray)
+      .catch((error: unknown) => {
+        if (error instanceof Error && error.name === "AbortError") {
+          return;
+        }
+
+        console.error("Failed to load full news data:", error);
+      });
+
+    void Promise.allSettled([quickRequest, fullRequest]).finally(() => {
+      if (!cancelled) {
+        setDeepLinkFetchDone(true);
+      }
+    });
+
+    return () => {
+      cancelled = true;
+      controller.abort();
+    };
+  }, [initialItems?.length, commitOrdered]);
 
   const normalizeIndex = useCallback(
     (index: number) => {
@@ -359,9 +484,25 @@ export function NewsFeed({ items: initialItems }: NewsFeedProps) {
     return <main className={styles.empty}>뉴스를 불러오는 중...</main>;
   }
 
+  const waitingForDeepLinkArticle =
+    Boolean(leadArticleId) &&
+    !isLeadArticleFirst(leadArticleId, items) &&
+    !deepLinkFetchDone;
+
+  if (waitingForDeepLinkArticle) {
+    return <main className={styles.empty}>뉴스를 불러오는 중...</main>;
+  }
+
   if (items.length === 0) {
     return <main className={styles.empty}>표시할 뉴스 카드가 없습니다.</main>;
   }
+
+  const activeSlideItem = items[activeIndex];
+  const showRankCount =
+    Boolean(activeSlideItem) &&
+    !activeSlideItem.isAd &&
+    activeSlideItem.rank >= 1 &&
+    (!leadArticleId || activeSlideItem.id !== leadArticleId);
 
   return (
     <main
@@ -375,11 +516,11 @@ export function NewsFeed({ items: initialItems }: NewsFeedProps) {
       <div className={styles.topOverlay}>
         <div className={styles.brandRow}>
           <p className={styles.brand}>NATE News</p>
-          {!items[activeIndex]?.isAd && (
+          {showRankCount ? (
             <span className={styles.brandCount}>
-              {items.slice(0, activeIndex + 1).filter(item => !item.isAd).length} / {items.filter(item => !item.isAd).length}
+              {activeSlideItem.rank} / {NATE_RANKING_TOTAL}
             </span>
-          )}
+          ) : null}
         </div>
         {!items[activeIndex]?.isAd && (
           <p className={styles.guide}>
