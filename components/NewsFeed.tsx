@@ -355,6 +355,10 @@ export function NewsFeed({
       return;
     }
 
+    if (hasRestoredInitialItemRef.current) {
+      return;
+    }
+
     const initialFrame = window.requestAnimationFrame(() => {
       const id = new URLSearchParams(window.location.search).get("id");
       const initialIndex = items.findIndex((item) => item.id === id);
