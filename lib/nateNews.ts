@@ -5,21 +5,50 @@ export type NateNewsItem = {
   rank: number;
   title: string;
   link: string;
-  img: string;
+  mobileLink?: string;
+  pcLink?: string;
+  imageUrl: string;
   sourceName: string | null;
   topComment: string | null;
   recommendationCount: number | null;
   isAd?: boolean;
 };
 
-const NATE_MOBILE_RANK_URL =
-  "https://m.news.nate.com/rank/list?mid=m2001&section=photo&rmode=interest";
-const NATE_COMMENT_BASE_URL = "https://m.comm.news.nate.com/Comment/ArticleComment/List";
-const NATE_EMOTICON_BASE_URL =
-  "https://m.comm.news.nate.com/comment/articleEmoticonComment/ArticleEmoticonList";
+export type NateNewsFeed = {
+  items: NateNewsItem[];
+  leadArticleId?: string;
+};
 
-const ITEM_PATTERN =
-  /<div class="item">\s*<a href="([^"]+)"[^>]*>\s*<span class="cnt(?:\s+r\d+)?">(\d+)<\/span>\s*<span class="thumb" style="background-image:url\('([^']+)'\);">[\s\S]*?<h2 class="txt">([\s\S]*?)<\/h2>/g;
+type NewsDetailMode = "all" | "top10" | "none";
+
+type BuildNateNewsFeedOptions = {
+  leadArticleId?: string;
+  rankingLimit?: number;
+  detailMode?: NewsDetailMode;
+};
+
+type NateEmoticonRankItem = {
+  rank?: number;
+  title?: string;
+  mobileUrl?: string;
+  pcUrl?: string;
+  imageUrl?: string;
+  cpName?: string;
+  emoticonCnt?: number;
+};
+
+type NateEmoticonRankResponse = {
+  data?: NateEmoticonRankItem[];
+};
+
+const NATE_COMMENT_BASE_URL =
+  "https://m.comm.news.nate.com/Comment/ArticleComment/List";
+const NATE_EMOTICON_RANK_URL = "http://api.news.nate.com:8080/ranks/emoticons";
+const NATE_ARTICLE_BASE_URL = "https://news.nate.com/view/";
+const NATE_MOBILE_ARTICLE_BASE_URL = "https://m.news.nate.com/view/";
+const NATE_IMAGE_PREFIX = "https://thumbnews.nateimg.co.kr/mnews107x80/";
+const NATE_VIEW_IMAGE_PREFIX = "https://thumbnews.nateimg.co.kr/view610/";
+
 const ARTICLE_ID_PATTERN = /\/view\/(\d{8}n\d+)/i;
 const ARTICLE_MID_PATTERN =
   /ArticleEmoticonList\?artc_sq=\d{8}n\d+(?:&|&amp;)mid=([^"'&\s]+)/i;
@@ -29,33 +58,26 @@ const COMMENT_TEXT_PATTERN =
   /<dd class="userText">[\s\S]*?<a[^>]*>\s*([\s\S]*?)\s*<\/a>/gi;
 const ARTICLE_SOURCE_PATTERN =
   /<div class="author">[\s\S]*?<em><b>([^<]+)<\/b><span>/i;
+const ARTICLE_SOURCE_LINK_PATTERN =
+  /<a[^>]+href=["'](?:\/\/)?news\.nate\.com\/mediaList\?cp=[^"']+["'][^>]*>([^<]+)<\/a>/i;
 const ARTICLE_SOURCE_FALLBACK_PATTERN = /<span class="source">([^<]+)<\/span>/i;
-const TOTAL_COUNT_PATTERN = /"totalcount":"(\d+)"/i;
+const ARTICLE_TITLE_META_PATTERN =
+  /<meta[^>]+property=["']og:title["'][^>]+content=(["'])([\s\S]*?)\1[^>]*>/i;
+const ARTICLE_TITLE_FALLBACK_PATTERN = /<title>([^<]+)<\/title>/i;
+const ARTICLE_IMAGE_META_PATTERN =
+  /<meta[^>]+property=["']og:image["'][^>]+content=(["'])([\s\S]*?)\1[^>]*>/i;
+const ARTICLE_IMAGE_FALLBACK_PATTERN =
+  /<img[^>]+class=["'][^"']*img[^"']*["'][^>]+src=["']([^"']+)["'][^>]*>/i;
 
 const REQUEST_HEADERS = {
   "accept-language": "ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7",
   "user-agent":
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36",
 };
-// 12페이지씩 순차적으로 호출하여 100개 항목 가져오기 (여유분 포함)
-const RANK_PAGE_PARAMS = Array.from({ length: 12 }, (_, i) => 
-  i === 0 ? "" : `&page=${i}`
-);
 
-function getTodayInSeoul() {
-  const parts = new Intl.DateTimeFormat("en-CA", {
-    timeZone: "Asia/Seoul",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).formatToParts(new Date());
-
-  const year = parts.find((part) => part.type === "year")?.value ?? "";
-  const month = parts.find((part) => part.type === "month")?.value ?? "";
-  const day = parts.find((part) => part.type === "day")?.value ?? "";
-
-  return `${year}${month}${day}`;
-}
+const DEFAULT_RANKING_LIMIT = 20;
+const QUICK_DETAIL_COUNT = 10;
+const EMOTICON_PAGE_SIZE = 20;
 
 function decodeHtmlEntities(value: string) {
   return value
@@ -72,25 +94,11 @@ function decodeHtmlEntities(value: string) {
     );
 }
 
-function normalizeUrl(value: string) {
-  const normalizedValue = value.startsWith("//") ? `https:${value}` : value;
-
-  if (
-    normalizedValue.startsWith(
-      "https://thumbnews.nateimg.co.kr/mnews300x166/",
-    )
-  ) {
-    return normalizedValue.replace(
-      "https://thumbnews.nateimg.co.kr/mnews300x166/",
-      "",
-    );
-  }
-
-  return normalizedValue;
-}
-
 function cleanTitle(value: string) {
   return decodeHtmlEntities(value)
+    .replace(/\\[nrtt]/g, " ")
+    .replace(/\\(["'/\\])/g, "$1")
+    .replace(/\\/g, "")
     .replace(/<[^>]+>/g, " ")
     .replace(/\s+/g, " ")
     .trim();
@@ -127,38 +135,29 @@ async function fetchNateDocument(url: string) {
   return new TextDecoder("euc-kr").decode(body);
 }
 
+async function fetchNateJson<T>(url: string) {
+  const response = await fetch(url, {
+    cache: "no-store",
+    headers: REQUEST_HEADERS,
+  });
+
+  if (!response.ok) {
+    throw new Error(`Failed to fetch Nate JSON: ${response.status}`);
+  }
+
+  return (await response.json()) as T;
+}
+
 function getArticleId(link: string) {
   return link.match(ARTICLE_ID_PATTERN)?.[1] ?? null;
 }
 
 function getArticleMid(articleHtml: string) {
   const match =
-    articleHtml.match(ARTICLE_MID_PATTERN) ?? articleHtml.match(COMMENT_MID_PATTERN);
+    articleHtml.match(ARTICLE_MID_PATTERN) ??
+    articleHtml.match(COMMENT_MID_PATTERN);
 
   return decodeHtmlEntities(match?.[1] ?? "");
-}
-
-function getArticleSource(articleHtml: string) {
-  const match =
-    articleHtml.match(ARTICLE_SOURCE_PATTERN) ??
-    articleHtml.match(ARTICLE_SOURCE_FALLBACK_PATTERN);
-  const sourceName = cleanSource(match?.[1] ?? "");
-
-  return sourceName || null;
-}
-
-function createAdItem(adIndex: number): NateNewsItem {
-  return {
-    id: `ad_${adIndex}`,
-    rank: -1, // 광고는 순위가 없음
-    title: `광고 ${adIndex}`,
-    link: "#",
-    img: "/images/ad-banner.png",
-    sourceName: "광고",
-    topComment: null,
-    recommendationCount: null,
-    isAd: true,
-  };
 }
 
 function getFirstMatchText(html: string, pattern: RegExp) {
@@ -174,289 +173,275 @@ function getFirstMatchText(html: string, pattern: RegExp) {
   return text || null;
 }
 
-async function fetchArticleDetails(link: string) {
+function normalizeImageUrl(value: string) {
+  const normalizedValue = value
+    .replace(NATE_IMAGE_PREFIX, "")
+    .replace(NATE_VIEW_IMAGE_PREFIX, "");
+
+  return decodeURIComponent(normalizedValue);
+}
+
+function getArticleSource(articleHtml: string) {
+  const match =
+    articleHtml.match(ARTICLE_SOURCE_PATTERN) ??
+    articleHtml.match(ARTICLE_SOURCE_LINK_PATTERN) ??
+    articleHtml.match(ARTICLE_SOURCE_FALLBACK_PATTERN);
+  const sourceName = cleanSource(match?.[1] ?? "");
+
+  return sourceName || null;
+}
+
+function getArticleTitle(articleHtml: string) {
+  const match =
+    articleHtml.match(ARTICLE_TITLE_META_PATTERN) ??
+    articleHtml.match(ARTICLE_TITLE_FALLBACK_PATTERN);
+  const rawTitle = match?.[2] ?? match?.[1] ?? "";
+  const title = cleanTitle(rawTitle).replace(/\s*:\s*네이트.*$/i, "");
+
+  return title || null;
+}
+
+function getArticleImage(articleHtml: string) {
+  const match =
+    articleHtml.match(ARTICLE_IMAGE_META_PATTERN) ??
+    articleHtml.match(ARTICLE_IMAGE_FALLBACK_PATTERN);
+  const rawImageUrl = match?.[2] ?? match?.[1] ?? "";
+  const imageUrl = normalizeImageUrl(rawImageUrl);
+
+  return imageUrl || null;
+}
+
+function mapEmoticonRankItemToNewsItem(
+  item: NateEmoticonRankItem,
+  fallbackRank: number,
+): NateNewsItem | null {
+  const mobileLink = item.mobileUrl;
+  const pcLink = item.pcUrl;
+  const articleId = getArticleId(mobileLink ?? pcLink ?? "");
+  const title = cleanTitle(item.title ?? "");
+  const img = normalizeImageUrl(item.imageUrl ?? "");
+
+  if (!articleId || !mobileLink || !pcLink || !title || !img) {
+    return null;
+  }
+
+  return {
+    id: articleId,
+    rank: item.rank ?? fallbackRank,
+    title,
+    link: pcLink,
+    mobileLink,
+    pcLink,
+    imageUrl: img,
+    sourceName: item.cpName ?? null,
+    topComment: null,
+    recommendationCount:
+      typeof item.emoticonCnt === "number" ? item.emoticonCnt : null,
+  };
+}
+
+function createAdItem(adIndex: number): NateNewsItem {
+  return {
+    id: `ad_${adIndex}`,
+    rank: -1,
+    title: `광고 ${adIndex}`,
+    link: "#",
+    imageUrl: "/images/ad-banner.png",
+    sourceName: "광고",
+    topComment: null,
+    recommendationCount: null,
+    isAd: true,
+  };
+}
+
+async function fetchEmoticonRankItems(pageSize = EMOTICON_PAGE_SIZE) {
+  const params = new URLSearchParams({
+    pageSize: String(pageSize),
+  });
+  const response = await fetchNateJson<NateEmoticonRankResponse>(
+    `${NATE_EMOTICON_RANK_URL}?${params.toString()}`,
+  );
+  const items = response.data ?? [];
+
+  if (items.length === 0) {
+    throw new Error("Nate emoticon ranking API returned no items.");
+  }
+
+  return items.slice(0, pageSize);
+}
+
+async function fetchTopComment(link: string) {
   const articleId = getArticleId(link);
 
   if (!articleId) {
-    return {
-      recommendationCount: null,
-      topComment: null,
-    };
+    return null;
   }
 
   const articleHtml = await fetchNateDocument(link);
   const mid = getArticleMid(articleHtml);
-  const sourceName = getArticleSource(articleHtml);
 
   if (!mid) {
-    return {
-      sourceName,
-      recommendationCount: null,
-      topComment: null,
-    };
+    return null;
   }
 
-  const emoticonUrl = `${NATE_EMOTICON_BASE_URL}?artc_sq=${articleId}&mid=${mid}`;
   const commentUrl = `${NATE_COMMENT_BASE_URL}?artc_sq=${articleId}&mid=${mid}`;
+  const commentHtml = await fetchNateDocument(commentUrl);
 
-  const [emoticonResponse, commentHtml] = await Promise.all([
-    fetchNateDocument(emoticonUrl),
-    fetchNateDocument(commentUrl),
-  ]);
-
-  const recommendationCount = Number.parseInt(
-    emoticonResponse.match(TOTAL_COUNT_PATTERN)?.[1] ?? "",
-    10,
-  );
-  const topComment = getFirstMatchText(commentHtml, COMMENT_TEXT_PATTERN);
-
-  return {
-    sourceName,
-    recommendationCount: Number.isNaN(recommendationCount)
-      ? null
-      : recommendationCount,
-    topComment,
-  };
+  return getFirstMatchText(commentHtml, COMMENT_TEXT_PATTERN);
 }
 
-export async function fetchNateRankedNews(date = getTodayInSeoul()) {
-  const items: NateNewsItem[] = [];
-  const seenArticleIds = new Set<string>();
+async function fetchTopCommentFromArticleHtml(
+  articleId: string,
+  articleHtml: string,
+) {
+  const mid = getArticleMid(articleHtml);
 
-  // 순차적으로 10페이지씩 호출하여 100개 항목 수집
-  for (const pageParam of RANK_PAGE_PARAMS) {
-    try {
-      const html = await fetchNateDocument(`${NATE_MOBILE_RANK_URL}&date=${date}${pageParam}`);
-      
-      for (const match of html.matchAll(ITEM_PATTERN)) {
-        const link = normalizeUrl(decodeHtmlEntities(match[1] ?? ""));
-        const articleId = getArticleId(link);
-        const rank = Number.parseInt(match[2] ?? "", 10);
-        const img = normalizeUrl(decodeHtmlEntities(match[3] ?? ""));
-        const title = cleanTitle(match[4] ?? "");
-
-        if (
-          !articleId ||
-          seenArticleIds.has(articleId) ||
-          !link ||
-          !img ||
-          !title ||
-          Number.isNaN(rank)
-        ) {
-          continue;
-        }
-
-        seenArticleIds.add(articleId);
-        items.push({
-          id: articleId,
-          rank,
-          title,
-          link,
-          img,
-          sourceName: null,
-          topComment: null,
-          recommendationCount: null,
-        });
-      }
-    } catch (error) {
-      console.error(`Failed to fetch page ${pageParam}:`, error);
-      // 개별 페이지 실패 시에도 다른 페이지는 계속 처리
-      continue;
-    }
+  if (!mid) {
+    return null;
   }
 
-  const enrichedItems = await Promise.all(
-    items.map(async (item) => {
+  const commentUrl = `${NATE_COMMENT_BASE_URL}?artc_sq=${articleId}&mid=${mid}`;
+  const commentHtml = await fetchNateDocument(commentUrl);
+
+  return getFirstMatchText(commentHtml, COMMENT_TEXT_PATTERN);
+}
+
+async function enrichRankedItems(
+  items: NateNewsItem[],
+  detailMode: NewsDetailMode,
+  leadArticleId?: string,
+) {
+  if (detailMode === "none") {
+    return items;
+  }
+
+  const detailCount = detailMode === "top10" ? QUICK_DETAIL_COUNT : items.length;
+
+  return Promise.all(
+    items.map(async (item, index) => {
+      if (index >= detailCount && item.id !== leadArticleId) {
+        return item;
+      }
+
       try {
-        const details = await fetchArticleDetails(item.link);
+        const topComment = await fetchTopComment(item.mobileLink ?? item.link);
 
         return {
           ...item,
-          ...details,
+          topComment,
         };
       } catch (error) {
-        console.error("Failed to enrich Nate news item", item.link, error);
+        console.error("Failed to fetch Nate news comment", item.link, error);
 
         return item;
       }
     }),
   );
-
-  // 정확히 100개의 뉴스 아이템만 가져오기
-  const sortedItems = enrichedItems.sort((a, b) => a.rank - b.rank).slice(0, 100);
-  
-  // 광고 삽입: 10개마다 광고 추가 (10위 다음, 20위 다음, ...)
-  const itemsWithAds: NateNewsItem[] = [];
-  let adCounter = 1;
-  
-  for (let i = 0; i < sortedItems.length; i++) {
-    itemsWithAds.push(sortedItems[i]);
-    
-    // 10의 배수 위치 다음에 광고 삽입 (10, 20, 30, ..., 100)
-    if ((i + 1) % 10 === 0) {
-      itemsWithAds.push(createAdItem(adCounter));
-      adCounter++;
-    }
-  }
-  
-  return itemsWithAds;
 }
 
-/** 랭킹 HTML만 병렬 수집(기사 상세 없음). 첫 페인트·SSR용. */
-export async function fetchNateRankedNewsListOnly(
-  date = getTodayInSeoul(),
-  maxItems = 20,
+function composeOrderedNewsItems(
+  rankedItems: NateNewsItem[],
+  leadArticle: NateNewsItem | null,
 ) {
-  const pageCount = Math.max(1, Math.ceil(maxItems / 10));
-  const quickPages = Array.from(
-    { length: pageCount },
-    (_, index) => (index === 0 ? "" : `&page=${index}`),
-  );
-  const htmlPages = await Promise.all(
-    quickPages.map((pageParam) =>
-      fetchNateDocument(`${NATE_MOBILE_RANK_URL}&date=${date}${pageParam}`),
-    ),
-  );
+  const dedupedRankedItems = leadArticle
+    ? rankedItems.filter((item) => item.id !== leadArticle.id)
+    : rankedItems;
 
-  const items: NateNewsItem[] = [];
-  const seenArticleIds = new Set<string>();
+  return leadArticle ? [leadArticle, ...dedupedRankedItems] : dedupedRankedItems;
+}
 
-  for (const html of htmlPages) {
-    for (const match of html.matchAll(ITEM_PATTERN)) {
-      const link = normalizeUrl(decodeHtmlEntities(match[1] ?? ""));
-      const articleId = getArticleId(link);
-      const rank = Number.parseInt(match[2] ?? "", 10);
-      const img = normalizeUrl(decodeHtmlEntities(match[3] ?? ""));
-      const title = cleanTitle(match[4] ?? "");
-
-      if (
-        !articleId ||
-        seenArticleIds.has(articleId) ||
-        !link ||
-        !img ||
-        !title ||
-        Number.isNaN(rank)
-      ) {
-        continue;
-      }
-
-      seenArticleIds.add(articleId);
-      items.push({
-        id: articleId,
-        rank,
-        title,
-        link,
-        img,
-        sourceName: null,
-        topComment: null,
-        recommendationCount: null,
-      });
-    }
-  }
-
-  const sortedItems = items.sort((a, b) => a.rank - b.rank).slice(0, maxItems);
+function insertAds(items: NateNewsItem[]) {
   const itemsWithAds: NateNewsItem[] = [];
   let adCounter = 1;
+  let rankedNewsCount = 0;
 
-  for (let i = 0; i < sortedItems.length; i++) {
-    itemsWithAds.push(sortedItems[i]);
+  for (let i = 0; i < items.length; i += 1) {
+    const item = items[i];
+    itemsWithAds.push(item);
 
-    if ((i + 1) % 10 === 0) {
+    if (item.rank >= 1) {
+      rankedNewsCount += 1;
+    }
+
+    if (rankedNewsCount > 0 && rankedNewsCount % 10 === 0) {
       itemsWithAds.push(createAdItem(adCounter));
-      adCounter++;
+      adCounter += 1;
     }
   }
 
   return itemsWithAds;
 }
 
-// 빠른 로딩을 위한 간단한 버전 (상세 정보 없이)
-export async function fetchNateRankedNewsSimple(date = getTodayInSeoul()) {
-  const items: NateNewsItem[] = [];
-  const seenArticleIds = new Set<string>();
-
-  // 처음 2페이지만 빠르게 가져오기 (약 20개 기사)
-  const quickPages = ["", "&page=1"];
-
-  const htmlPages = await Promise.all(
-    quickPages.map((pageParam) =>
-      fetchNateDocument(`${NATE_MOBILE_RANK_URL}&date=${date}${pageParam}`),
-    ),
-  );
-
-  for (const html of htmlPages) {
-    try {
-      for (const match of html.matchAll(ITEM_PATTERN)) {
-        const link = normalizeUrl(decodeHtmlEntities(match[1] ?? ""));
-        const articleId = getArticleId(link);
-        const rank = Number.parseInt(match[2] ?? "", 10);
-        const img = normalizeUrl(decodeHtmlEntities(match[3] ?? ""));
-        const title = cleanTitle(match[4] ?? "");
-
-        if (
-          !articleId ||
-          seenArticleIds.has(articleId) ||
-          !link ||
-          !img ||
-          !title ||
-          Number.isNaN(rank)
-        ) {
-          continue;
-        }
-
-        seenArticleIds.add(articleId);
-        items.push({
-          id: articleId,
-          rank,
-          title,
-          link,
-          img,
-          sourceName: null,
-          topComment: null,
-          recommendationCount: null,
-        });
-      }
-    } catch (error) {
-      console.error("Failed to parse quick rank page:", error);
-    }
+export async function fetchNateArticleById(articleId: string) {
+  if (!ARTICLE_ID_PATTERN.test(`/view/${articleId}`)) {
+    return null;
   }
 
-  // 정렬하고 처음 10개 기사는 상세 정보 포함
-  const sortedItems = items.sort((a, b) => a.rank - b.rank).slice(0, 20);
-  
-  // 처음 10개 기사에 대해서는 상세 정보 가져오기
-  const enrichedItems = await Promise.all(
-    sortedItems.map(async (item, index) => {
-      if (index < 10) {
-        // 처음 10개만 상세 정보 포함
-        try {
-          const details = await fetchArticleDetails(item.link);
-          return {
-            ...item,
-            ...details,
-          };
-        } catch (error) {
-          console.error("Failed to enrich quick news item", item.link, error);
-          return item;
-        }
-      }
-      return item; // 나머지는 기본 정보만
-    })
-  );
-  
-  // 광고 삽입
-  const itemsWithAds: NateNewsItem[] = [];
-  let adCounter = 1;
-  
-  for (let i = 0; i < enrichedItems.length; i++) {
-    itemsWithAds.push(enrichedItems[i]);
-    
-    // 10의 배수 위치 다음에 광고 삽입
-    if ((i + 1) % 10 === 0) {
-      itemsWithAds.push(createAdItem(adCounter));
-      adCounter++;
-    }
+  const pcLink = `${NATE_ARTICLE_BASE_URL}${articleId}`;
+  const mobileLink = `${NATE_MOBILE_ARTICLE_BASE_URL}${articleId}`;
+  const articleHtml = await fetchNateDocument(pcLink);
+  const title = getArticleTitle(articleHtml);
+  const imageUrl = getArticleImage(articleHtml);
+
+  if (!title || !imageUrl) {
+    return null;
   }
-  
-  return itemsWithAds;
+
+  const [topComment, rankedItems] = await Promise.all([
+    fetchTopCommentFromArticleHtml(articleId, articleHtml).catch((error) => {
+      console.error("Failed to fetch Nate lead comment", articleId, error);
+      return null;
+    }),
+    fetchEmoticonRankItems(EMOTICON_PAGE_SIZE).catch((error) => {
+      console.error("Failed to fetch Nate emoticon ranks", error);
+      return [] as NateEmoticonRankItem[];
+    }),
+  ]);
+  const matchedRankItem = rankedItems.find((item) => {
+    const rankedArticleId = getArticleId(item.mobileUrl ?? item.pcUrl ?? "");
+
+    return rankedArticleId === articleId;
+  });
+
+  return {
+    id: articleId,
+    rank: 0,
+    title,
+    link: pcLink,
+    mobileLink,
+    pcLink,
+    imageUrl,
+    sourceName: getArticleSource(articleHtml),
+    topComment,
+    recommendationCount:
+      typeof matchedRankItem?.emoticonCnt === "number"
+        ? matchedRankItem.emoticonCnt
+        : null,
+  } satisfies NateNewsItem;
+}
+
+export async function buildNateNewsFeed({
+  leadArticleId,
+  rankingLimit = DEFAULT_RANKING_LIMIT,
+  detailMode = "all",
+}: BuildNateNewsFeedOptions = {}): Promise<NateNewsFeed> {
+  const pageSize = Math.min(rankingLimit, EMOTICON_PAGE_SIZE);
+  const [rankResponseItems, leadArticle] = await Promise.all([
+    fetchEmoticonRankItems(pageSize),
+    leadArticleId ? fetchNateArticleById(leadArticleId) : Promise.resolve(null),
+  ]);
+  const rankedItems = rankResponseItems
+    .map((item, index) => mapEmoticonRankItemToNewsItem(item, index + 1))
+    .filter((item): item is NateNewsItem => item !== null);
+  const enrichedItems = await enrichRankedItems(
+    rankedItems,
+    detailMode,
+    leadArticleId,
+  );
+  const orderedItems = composeOrderedNewsItems(enrichedItems, leadArticle);
+
+  return {
+    items: insertAds(orderedItems),
+    leadArticleId: leadArticle?.id,
+  };
 }

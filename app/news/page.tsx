@@ -1,5 +1,5 @@
 import { NewsFeed } from "@/components/NewsFeed";
-import { fetchNateRankedNewsListOnly } from "@/lib/nateNews";
+import { buildNateNewsFeed } from "@/lib/nateNews";
 import type { Metadata } from "next";
 
 export const dynamic = "force-dynamic";
@@ -53,10 +53,10 @@ export default async function NewsPage({ searchParams }: Props) {
   const leadArticleId =
     typeof sp.id === "string" && sp.id.length > 0 ? sp.id : undefined;
 
-  let initialItems: Awaited<ReturnType<typeof fetchNateRankedNewsListOnly>> = [];
+  let initialItems: Awaited<ReturnType<typeof buildNateNewsFeed>>["items"] = [];
 
   try {
-    initialItems = await fetchNateRankedNewsListOnly(undefined, 1);
+    initialItems = (await buildNateNewsFeed({ leadArticleId })).items;
   } catch (error) {
     console.error("Failed to load initial news list", error);
   }
