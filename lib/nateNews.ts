@@ -44,10 +44,12 @@ type NateEmoticonRankResponse = {
 const NATE_COMMENT_BASE_URL =
   "https://m.comm.news.nate.com/Comment/ArticleComment/List";
 const NATE_EMOTICON_RANK_URL = "http://api.news.nate.com:8080/ranks/emoticons";
+const NATE_EMOTICON_RANK_PAGE_URL = "https://news.nate.com/rank/emoticon";
 const NATE_ARTICLE_BASE_URL = "https://news.nate.com/view/";
 const NATE_MOBILE_ARTICLE_BASE_URL = "https://m.news.nate.com/view/";
 const NATE_IMAGE_PREFIX = "https://thumbnews.nateimg.co.kr/mnews107x80/";
 const NATE_VIEW_IMAGE_PREFIX = "https://thumbnews.nateimg.co.kr/view610/";
+const NATE_IDOL_IMAGE_PREFIX = "https://thumbnews.nateimg.co.kr/idol140x88/";
 
 const ARTICLE_ID_PATTERN = /\/view\/(\d{8}n\d+)/i;
 const ARTICLE_MID_PATTERN =
@@ -68,6 +70,8 @@ const ARTICLE_IMAGE_META_PATTERN =
   /<meta[^>]+property=["']og:image["'][^>]+content=(["'])([\s\S]*?)\1[^>]*>/i;
 const ARTICLE_IMAGE_FALLBACK_PATTERN =
   /<img[^>]+class=["'][^"']*img[^"']*["'][^>]+src=["']([^"']+)["'][^>]*>/i;
+const EMOTICON_RANK_ITEM_PATTERN =
+  /<div class="mduSubjectList f_clear">[\s\S]*?<dt><em>(\d+)[^<]*<\/em><\/dt>[\s\S]*?<a href="([^"]*\/view\/\d{8}n\d+[^"]*)"[\s\S]*?<img src="([^"]+)"[\s\S]*?<h2 class="tit">([\s\S]*?)<\/h2>[\s\S]*?<span class="emcnt"><em>([\d,]+)<\/em><\/span><span class="teCnt">([\s\S]*?)<\/span>/gi;
 
 const REQUEST_HEADERS = {
   "accept-language": "ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7",
@@ -174,11 +178,70 @@ function getFirstMatchText(html: string, pattern: RegExp) {
 }
 
 function normalizeImageUrl(value: string) {
-  const normalizedValue = value
+  const normalizedValue = decodeHtmlEntities(value)
+    .trim()
+    .replace(/^\/\//, "https://")
     .replace(NATE_IMAGE_PREFIX, "")
-    .replace(NATE_VIEW_IMAGE_PREFIX, "");
+    .replace(NATE_VIEW_IMAGE_PREFIX, "")
+    .replace(NATE_IDOL_IMAGE_PREFIX, "");
 
-  return decodeURIComponent(normalizedValue);
+  const decodedValue = decodeURIComponent(normalizedValue);
+
+  if (/^https?:\/\//i.test(decodedValue)) {
+    return decodedValue;
+  }
+
+  if (decodedValue.startsWith("news.nateimg.co.kr/")) {
+    return `https://${decodedValue}`;
+  }
+
+  return decodedValue;
+}
+
+function normalizeNateUrl(value: string) {
+  const normalizedValue = decodeHtmlEntities(value).trim();
+
+  if (normalizedValue.startsWith("//")) {
+    return `https:${normalizedValue}`;
+  }
+
+  return normalizedValue;
+}
+
+function parseCount(value: string) {
+  const count = Number.parseInt(value.replace(/[^\d]/g, ""), 10);
+
+  return Number.isNaN(count) ? null : count;
+}
+
+function parseEmoticonRankItemsFromHtml(html: string) {
+  const items: NateEmoticonRankItem[] = [];
+
+  for (const match of html.matchAll(EMOTICON_RANK_ITEM_PATTERN)) {
+    const rank = Number.parseInt(match[1] ?? "", 10);
+    const pcUrl = normalizeNateUrl(match[2] ?? "");
+    const articleId = getArticleId(pcUrl);
+    const title = cleanTitle(match[4] ?? "");
+    const sourceName = cleanSource(match[6] ?? "");
+    const recommendationCount = parseCount(match[5] ?? "");
+    const imageUrl = normalizeImageUrl(match[3] ?? "");
+
+    if (!articleId || !pcUrl || !title || !imageUrl) {
+      continue;
+    }
+
+    items.push({
+      rank: Number.isNaN(rank) ? undefined : rank,
+      title,
+      pcUrl,
+      mobileUrl: `${NATE_MOBILE_ARTICLE_BASE_URL}${articleId}`,
+      imageUrl,
+      cpName: sourceName || undefined,
+      emoticonCnt: recommendationCount ?? undefined,
+    });
+  }
+
+  return items;
 }
 
 function getArticleSource(articleHtml: string) {
@@ -255,13 +318,25 @@ function createAdItem(adIndex: number): NateNewsItem {
 }
 
 async function fetchEmoticonRankItems(pageSize = EMOTICON_PAGE_SIZE) {
-  const params = new URLSearchParams({
-    pageSize: String(pageSize),
-  });
-  const response = await fetchNateJson<NateEmoticonRankResponse>(
-    `${NATE_EMOTICON_RANK_URL}?${params.toString()}`,
-  );
-  const items = response.data ?? [];
+  let items: NateEmoticonRankItem[] = [];
+
+  try {
+    const params = new URLSearchParams({
+      pageSize: String(pageSize),
+    });
+    const response = await fetchNateJson<NateEmoticonRankResponse>(
+      `${NATE_EMOTICON_RANK_URL}?${params.toString()}`,
+    );
+    items = response.data ?? [];
+  } catch (error) {
+    console.warn(
+      "Failed to fetch Nate emoticon JSON API, falling back to HTML ranking page.",
+      error,
+    );
+
+    const html = await fetchNateDocument(NATE_EMOTICON_RANK_PAGE_URL);
+    items = parseEmoticonRankItemsFromHtml(html);
+  }
 
   if (items.length === 0) {
     throw new Error("Nate emoticon ranking API returned no items.");
