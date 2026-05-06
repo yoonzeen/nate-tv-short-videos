@@ -43,7 +43,13 @@ type NateEmoticonRankResponse = {
 
 const NATE_COMMENT_BASE_URL =
   "https://m.comm.news.nate.com/Comment/ArticleComment/List";
-const NATE_EMOTICON_RANK_URL = "http://api.news.nate.com:8080/ranks/emoticons";
+
+const NATE_EMOTICON_RANK_ORIGIN =
+  process.env.NODE_ENV === "production"
+    ? "http://api.news.nate.com"
+    : "http://api.news.nate.com:8080";
+
+const NATE_EMOTICON_RANK_URL = `${NATE_EMOTICON_RANK_ORIGIN}/ranks/emoticons`;
 const NATE_EMOTICON_RANK_PAGE_URL = "https://news.nate.com/rank/emoticon";
 const NATE_EMOTICON_RANK_PAGE_PATH = "/rank/emoticon";
 const NATE_ARTICLE_BASE_URL = "https://news.nate.com/view/";

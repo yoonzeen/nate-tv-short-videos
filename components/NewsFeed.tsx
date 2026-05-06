@@ -4,6 +4,7 @@ import Image from "next/image";
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useRef,
   useState,
   type TouchEvent,
@@ -132,8 +133,15 @@ export function NewsFeed({
   }, []);
 
   useEffect(() => {
+    const shouldIgnoreDocumentFocus =
+      typeof window !== "undefined" &&
+      ("ontouchstart" in window || (navigator.maxTouchPoints ?? 0) > 0);
+
     const updatePageActiveState = () => {
-      setIsPageActive(document.visibilityState === "visible" && document.hasFocus());
+      const visible = document.visibilityState === "visible";
+      setIsPageActive(
+        visible && (shouldIgnoreDocumentFocus || document.hasFocus()),
+      );
     };
 
     updatePageActiveState();
@@ -149,6 +157,19 @@ export function NewsFeed({
   }, []);
 
   useEffect(() => {
+    if (typeof window === "undefined" || !("scrollRestoration" in history)) {
+      return;
+    }
+
+    const previous = history.scrollRestoration;
+    history.scrollRestoration = "manual";
+
+    return () => {
+      history.scrollRestoration = previous;
+    };
+  }, []);
+
+  useEffect(() => {
     const nextItems = initialItems ?? [];
 
     setItems(nextItems);
@@ -157,7 +178,6 @@ export function NewsFeed({
     setProgress(0);
 
     activeIndexRef.current = 0;
-    itemRefs.current = [];
     slideElapsedRef.current = 0;
     lastTickRef.current = null;
     navigationLockedRef.current = false;
@@ -386,6 +406,7 @@ export function NewsFeed({
       return;
     }
 
+    const feedRect = feedElement.getBoundingClientRect();
     const feedCenter = feedElement.scrollTop + feedElement.clientHeight / 2;
     let closestIndex = 0;
     let closestDistance = Number.POSITIVE_INFINITY;
@@ -395,7 +416,10 @@ export function NewsFeed({
         return;
       }
 
-      const itemCenter = item.offsetTop + item.clientHeight / 2;
+      const itemRect = item.getBoundingClientRect();
+      const itemTop =
+        itemRect.top - feedRect.top + feedElement.scrollTop;
+      const itemCenter = itemTop + itemRect.height / 2;
       const distance = Math.abs(itemCenter - feedCenter);
 
       if (distance < closestDistance) {
@@ -432,18 +456,36 @@ export function NewsFeed({
     };
   }, [updateActiveIndex]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (items.length === 0) {
       return;
     }
 
+    if (itemRefs.current.length > items.length) {
+      itemRefs.current.length = items.length;
+    }
+
+    const feed = feedRef.current;
+    if (!feed) {
+      return;
+    }
+
+    feed.scrollTop = 0;
     const initialIndex = 0;
     activeIndexRef.current = initialIndex;
     setActiveIndex(initialIndex);
+    setProgress(0);
+    slideElapsedRef.current = 0;
+    lastTickRef.current = null;
+
     if (!leadArticleId) {
       syncUrlForItem(items[initialIndex]);
     }
-    scrollItemIntoView(itemRefs.current[initialIndex], "auto");
+
+    const first = itemRefs.current[initialIndex];
+    if (first) {
+      scrollItemIntoView(first, "auto");
+    }
   }, [items, leadArticleId, scrollItemIntoView, syncUrlForItem]);
 
   useEffect(() => {
