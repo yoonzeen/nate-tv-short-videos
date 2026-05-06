@@ -406,27 +406,16 @@ export function NewsFeed({
       return;
     }
 
-    const feedRect = feedElement.getBoundingClientRect();
-    const feedCenter = feedElement.scrollTop + feedElement.clientHeight / 2;
-    let closestIndex = 0;
-    let closestDistance = Number.POSITIVE_INFINITY;
+    const slideHeight =
+      itemRefs.current[0]?.getBoundingClientRect().height ||
+      feedElement.clientHeight ||
+      1;
 
-    itemRefs.current.forEach((item, index) => {
-      if (!item) {
-        return;
-      }
-
-      const itemRect = item.getBoundingClientRect();
-      const itemTop =
-        itemRect.top - feedRect.top + feedElement.scrollTop;
-      const itemCenter = itemTop + itemRect.height / 2;
-      const distance = Math.abs(itemCenter - feedCenter);
-
-      if (distance < closestDistance) {
-        closestDistance = distance;
-        closestIndex = index;
-      }
-    });
+    const rawIndex = Math.round(feedElement.scrollTop / slideHeight);
+    const closestIndex = Math.max(
+      0,
+      Math.min(items.length - 1, rawIndex),
+    );
 
     const nextItem = items[closestIndex];
 
@@ -482,11 +471,13 @@ export function NewsFeed({
       syncUrlForItem(items[initialIndex]);
     }
 
-    const first = itemRefs.current[initialIndex];
-    if (first) {
-      scrollItemIntoView(first, "auto");
-    }
-  }, [items, leadArticleId, scrollItemIntoView, syncUrlForItem]);
+    requestAnimationFrame(() => {
+      feed.scrollTop = 0;
+      requestAnimationFrame(() => {
+        updateActiveIndex();
+      });
+    });
+  }, [items, leadArticleId, syncUrlForItem, updateActiveIndex]);
 
   useEffect(() => {
     activeIndexRef.current = activeIndex;
