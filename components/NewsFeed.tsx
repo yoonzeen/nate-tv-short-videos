@@ -699,6 +699,7 @@ export function NewsFeed({
                         width={16}
                         height={16}
                         className={styles.shareIcon}
+                        loading="eager"
                       />
                       <span className={styles.srOnly}>공유하기</span>
                     </button>
