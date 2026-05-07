@@ -1,6 +1,3 @@
-"use client";
-
-import Image from "next/image";
 import {
   useCallback,
   useEffect,
@@ -75,6 +72,8 @@ function getItemsFromResponse(value: unknown): NewsItem[] {
   return [];
 }
 
+const commentIconSrc = `${import.meta.env.BASE_URL}images/ico-reple.png`;
+
 export function NewsFeed({ items: initialItems }: NewsFeedProps) {
   const [items, setItems] = useState<NewsItem[]>(() => initialItems ?? []);
   const [loading, setLoading] = useState(!(initialItems && initialItems.length > 0));
@@ -98,11 +97,12 @@ export function NewsFeed({ items: initialItems }: NewsFeedProps) {
   const navigationLockedRef = useRef(false);
   const suppressScrollGestureRef = useRef(false);
 
-  const newsApiUrl =
-    typeof process.env.NEXT_PUBLIC_BASE_PATH === "string" &&
-    process.env.NEXT_PUBLIC_BASE_PATH.length > 0
-      ? `${process.env.NEXT_PUBLIC_BASE_PATH}/api/news`
-      : "/api/news";
+  /** dev에서는 항상 /api/news → Vite proxy가 잡음 (base가 /shortnews/여도 동일) */
+  const newsApiUrl = import.meta.env.DEV
+    ? "/api/news"
+    : import.meta.env.BASE_URL.endsWith("/")
+      ? `${import.meta.env.BASE_URL}api/news`
+      : `${import.meta.env.BASE_URL}/api/news`;
 
   const normalizeIndex = useCallback(
     (index: number) => {
@@ -179,12 +179,8 @@ export function NewsFeed({ items: initialItems }: NewsFeedProps) {
     }
   }, [initialItems]);
 
-  // SSR로 목록이 없을 때만 클라이언트에서 요청
   useEffect(() => {
-    if (initialItems && initialItems.length > 0) {
-      return;
-    }
-    if (!loading || items.length > 0) {
+    if ((initialItems?.length ?? 0) > 0) {
       return;
     }
 
@@ -211,16 +207,20 @@ export function NewsFeed({ items: initialItems }: NewsFeedProps) {
 
         console.error("Failed to load news:", error);
       } finally {
-        setLoading(false);
+        /* abort(cleanup) 시에는 loading을 false로 두면 “빈 목록 + 로딩 끝”으로 남아 재요청이 막힘 */
+        if (!signal.aborted) {
+          setLoading(false);
+        }
       }
     };
 
+    setLoading(true);
     void loadData();
 
     return () => {
       controller.abort();
     };
-  }, [initialItems, loading, items.length, newsApiUrl]);
+  }, [initialItems, newsApiUrl]);
 
   const scrollItemIntoView = useCallback(
     (item: HTMLElement | null | undefined, behavior: ScrollBehavior) => {
@@ -533,16 +533,13 @@ export function NewsFeed({ items: initialItems }: NewsFeedProps) {
 
     const { deltaY } = event;
 
-    // 휠 감도 조정 (임계값)
     if (Math.abs(deltaY) < 30) {
       return;
     }
 
     if (deltaY > 0) {
-      // 아래로 스크롤 - 다음 뉴스
       goToIndex(activeIndexRef.current + 1);
     } else {
-      // 위로 스크롤 - 이전 뉴스
       goToIndex(activeIndexRef.current - 1);
     }
   }, [goToIndex, markGestureActive]);
@@ -596,7 +593,6 @@ export function NewsFeed({ items: initialItems }: NewsFeedProps) {
         >
           <article className={styles.card}>
             <div className={styles.thumbWrap}>
-              {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
                 ref={(element) => {
                   thumbImgRefs.current[index] = element;
@@ -639,8 +635,8 @@ export function NewsFeed({ items: initialItems }: NewsFeedProps) {
 
                 {item.topComment ? (
                   <div className={styles.commentInline}>
-                    <Image
-                      src="/images/ico-reple.png"
+                    <img
+                      src={commentIconSrc}
                       alt=""
                       aria-hidden="true"
                       width={16}
@@ -651,8 +647,8 @@ export function NewsFeed({ items: initialItems }: NewsFeedProps) {
                   </div>
                 ) : (
                   <div className={styles.commentInline}>
-                    <Image
-                      src="/images/ico-reple.png"
+                    <img
+                      src={commentIconSrc}
                       alt=""
                       aria-hidden="true"
                       width={16}

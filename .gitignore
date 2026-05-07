@@ -13,9 +13,12 @@
 # testing
 /coverage
 
-# next.js
+# legacy
 /.next/
+
+# vite / static export
 /out/
+/dist/
 
 # production
 /build

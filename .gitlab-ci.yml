@@ -1,0 +1,19 @@
+# GitLab Pages — 빌드 산출물은 Pages 규칙상 `public/` 이어야 해서 out → public 으로 둡니다.
+image: node:22
+
+variables:
+  GITLAB_PAGES: "true"
+  npm_config_fund: "false"
+  npm_config_audit: "false"
+
+pages:
+  stage: deploy
+  script:
+    - npm ci
+    - npm run build
+    - rm -rf public && mv out public
+  artifacts:
+    paths:
+      - public
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
