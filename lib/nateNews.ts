@@ -1,3 +1,5 @@
+import iconv from "iconv-lite";
+
 export type NateNewsItem = {
   id: string;
   rank: number;
@@ -127,7 +129,7 @@ async function fetchNateDocument(url: string) {
 
   const body = await response.arrayBuffer();
 
-  return new TextDecoder("euc-kr").decode(body);
+  return iconv.decode(Buffer.from(body), "euc-kr");
 }
 
 async function fetchNateJson<T>(url: string) {
