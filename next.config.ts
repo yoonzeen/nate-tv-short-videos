@@ -1,7 +1,8 @@
 import type { NextConfig } from "next";
 
 const isGithubPages = process.env.GITHUB_PAGES === "true";
-const repoName = "nate-tv-short-videos";
+/** 정적 배포 등 앱이 서브 경로에 올 때 사용 (예: https://host.github.io/shortnews/) */
+const BASE_PATH = "/shortnews";
 
 const nextConfig: NextConfig = {
   output: isGithubPages ? "export" : undefined,
@@ -9,8 +10,11 @@ const nextConfig: NextConfig = {
   images: {
     unoptimized: true,
   },
-  basePath: isGithubPages ? `/${repoName}` : undefined,
-  assetPrefix: isGithubPages ? `/${repoName}/` : undefined,
+  basePath: isGithubPages ? BASE_PATH : undefined,
+  assetPrefix: isGithubPages ? `${BASE_PATH}/` : undefined,
+  env: {
+    NEXT_PUBLIC_BASE_PATH: isGithubPages ? BASE_PATH : "",
+  },
   async headers() {
     return [
       {

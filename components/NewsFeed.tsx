@@ -9,17 +9,14 @@ import {
   useState,
   type TouchEvent,
 } from "react";
-import styles from "./IssuePlusFeed.module.css";
+import styles from "./NewsFeed.module.css";
 
 const SLIDE_DURATION_MS = 5_000;
 const SWIPE_ANIMATION_RESUME_DELAY_MS = 180;
-const THUMB_MOTION_DURATION_MS = 12_000;
 
 const THUMB_MOTION_VARIANTS = [
   "panLeft",
   "panRight",
-  "panUp",
-  "panDown",
   "zoomIn",
 ] as const;
 
@@ -36,12 +33,10 @@ type NewsItem = {
   sourceName: string | null;
   topComment: string | null;
   recommendationCount: number | null;
-  isAd?: boolean;
 };
 
 type NewsFeedProps = {
   items?: NewsItem[];
-  leadArticleId?: string;
 };
 
 type NewsFeedResponse = {
@@ -64,13 +59,6 @@ function getThumbMotionVariant(item: NewsItem, index: number): ThumbMotionVarian
   return THUMB_MOTION_VARIANTS[seed % THUMB_MOTION_VARIANTS.length];
 }
 
-function getThumbMotionDelay(item: NewsItem, index: number) {
-  const seed = hashText(`delay:${item.id}:${index}`);
-  const offsetMs = seed % THUMB_MOTION_DURATION_MS;
-
-  return `${-offsetMs}ms`;
-}
-
 function getItemsFromResponse(value: unknown): NewsItem[] {
   if (Array.isArray(value)) {
     return value as NewsItem[];
@@ -87,35 +75,34 @@ function getItemsFromResponse(value: unknown): NewsItem[] {
   return [];
 }
 
-export function NewsFeed({
-  items: initialItems,
-  leadArticleId,
-}: NewsFeedProps) {
+export function NewsFeed({ items: initialItems }: NewsFeedProps) {
   const [items, setItems] = useState<NewsItem[]>(() => initialItems ?? []);
   const [loading, setLoading] = useState(!(initialItems && initialItems.length > 0));
   const [activeIndex, setActiveIndex] = useState(0);
   const [progress, setProgress] = useState(0);
-  const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [isGestureActive, setIsGestureActive] = useState(false);
   const [isTransitioning, setIsTransitioning] = useState(false);
   const [isMobileDevice, setIsMobileDevice] = useState(false);
   const [isPageActive, setIsPageActive] = useState(true);
   const feedRef = useRef<HTMLElement | null>(null);
   const itemRefs = useRef<Array<HTMLElement | null>>([]);
+  const thumbImgRefs = useRef<Array<HTMLImageElement | null>>([]);
   const touchStartYRef = useRef<number | null>(null);
   const slideElapsedRef = useRef<number>(0);
   const lastTickRef = useRef<number | null>(null);
   const rafRef = useRef<number | null>(null);
   const scrollRafRef = useRef<number | null>(null);
-  const toastTimeoutRef = useRef<number | null>(null);
   const transitionTimeoutRef = useRef<number | null>(null);
   const gestureTimeoutRef = useRef<number | null>(null);
   const activeIndexRef = useRef(0);
   const navigationLockedRef = useRef(false);
-  const hasMovedFromInitialItemRef = useRef(false);
   const suppressScrollGestureRef = useRef(false);
 
-  const newsApiUrl = leadArticleId ? `/api/news?id=${leadArticleId}` : "/api/news";
+  const newsApiUrl =
+    typeof process.env.NEXT_PUBLIC_BASE_PATH === "string" &&
+    process.env.NEXT_PUBLIC_BASE_PATH.length > 0
+      ? `${process.env.NEXT_PUBLIC_BASE_PATH}/api/news`
+      : "/api/news";
 
   const normalizeIndex = useCallback(
     (index: number) => {
@@ -181,7 +168,6 @@ export function NewsFeed({
     slideElapsedRef.current = 0;
     lastTickRef.current = null;
     navigationLockedRef.current = false;
-    hasMovedFromInitialItemRef.current = false;
 
     if (scrollRafRef.current !== null) {
       window.cancelAnimationFrame(scrollRafRef.current);
@@ -191,7 +177,7 @@ export function NewsFeed({
     if (feedRef.current) {
       feedRef.current.scrollTop = 0;
     }
-  }, [initialItems, leadArticleId]);
+  }, [initialItems]);
 
   // SSR로 목록이 없을 때만 클라이언트에서 요청
   useEffect(() => {
@@ -236,31 +222,6 @@ export function NewsFeed({
     };
   }, [initialItems, loading, items.length, newsApiUrl]);
 
-  const updateUrlWithId = useCallback((id: string) => {
-    const url = new URL(window.location.href);
-    url.searchParams.set("id", id);
-    window.history.replaceState(null, document.title, url);
-  }, []);
-
-  const syncUrlForItem = useCallback(
-    (item: NewsItem | undefined) => {
-      if (!item || item.isAd) {
-        return;
-      }
-
-      updateUrlWithId(item.id);
-    },
-    [updateUrlWithId],
-  );
-
-  const hasActiveUrlSync = useCallback(() => {
-    if (!leadArticleId) {
-      return true;
-    }
-
-    return hasMovedFromInitialItemRef.current;
-  }, [leadArticleId]);
-
   const scrollItemIntoView = useCallback(
     (item: HTMLElement | null | undefined, behavior: ScrollBehavior) => {
       if (!item) {
@@ -294,7 +255,6 @@ export function NewsFeed({
       }
 
       navigationLockedRef.current = true;
-      hasMovedFromInitialItemRef.current = true;
       setIsTransitioning(true);
       setActiveIndex(nextIndex);
       activeIndexRef.current = nextIndex;
@@ -304,39 +264,13 @@ export function NewsFeed({
         window.clearTimeout(transitionTimeoutRef.current);
       }
       transitionTimeoutRef.current = window.setTimeout(() => {
-        const nextItem = items[nextIndex];
-
-        if (hasActiveUrlSync()) {
-          syncUrlForItem(nextItem);
-        }
-
         navigationLockedRef.current = false;
         setIsTransitioning(false);
         transitionTimeoutRef.current = null;
       }, 300);
     },
-    [hasActiveUrlSync, items, normalizeIndex, scrollItemIntoView, syncUrlForItem],
+    [items, normalizeIndex, scrollItemIntoView],
   );
-
-  const getShareUrl = useCallback((id: string) => {
-    const url = new URL(window.location.href);
-    url.searchParams.set("id", id);
-
-    return url.toString();
-  }, []);
-
-  const showToast = useCallback((message: string) => {
-    setToastMessage(message);
-
-    if (toastTimeoutRef.current !== null) {
-      window.clearTimeout(toastTimeoutRef.current);
-    }
-
-    toastTimeoutRef.current = window.setTimeout(() => {
-      setToastMessage(null);
-      toastTimeoutRef.current = null;
-    }, 2000);
-  }, []);
 
   const getArticleHref = useCallback(
     (item: NewsItem) => {
@@ -371,37 +305,12 @@ export function NewsFeed({
     [clearGestureTimeout],
   );
 
-  const handleShare = useCallback(
-    async (id: string) => {
-      const shareUrl = getShareUrl(id);
-
-      try {
-        await navigator.clipboard.writeText(shareUrl);
-      } catch {
-        const textarea = document.createElement("textarea");
-        textarea.value = shareUrl;
-        textarea.setAttribute("readonly", "");
-        textarea.style.position = "absolute";
-        textarea.style.left = "-9999px";
-        document.body.appendChild(textarea);
-        textarea.select();
-        document.execCommand("copy");
-        document.body.removeChild(textarea);
-      }
-
-      updateUrlWithId(id);
-      showToast("URL을 복사했어요.");
-    },
-    [getShareUrl, showToast, updateUrlWithId],
-  );
-
   const updateActiveIndex = useCallback(() => {
     const feedElement = feedRef.current;
 
     if (
       !feedElement ||
-      navigationLockedRef.current ||
-      !hasActiveUrlSync()
+      navigationLockedRef.current
     ) {
       return;
     }
@@ -417,15 +326,10 @@ export function NewsFeed({
       Math.min(items.length - 1, rawIndex),
     );
 
-    const nextItem = items[closestIndex];
-
     setActiveIndex((currentIndex) =>
       currentIndex === closestIndex ? currentIndex : closestIndex,
     );
-    if (hasActiveUrlSync()) {
-      syncUrlForItem(nextItem);
-    }
-  }, [hasActiveUrlSync, items, syncUrlForItem]);
+  }, [items]);
 
   useEffect(() => {
     scrollRafRef.current = window.requestAnimationFrame(() => {
@@ -453,6 +357,9 @@ export function NewsFeed({
     if (itemRefs.current.length > items.length) {
       itemRefs.current.length = items.length;
     }
+    if (thumbImgRefs.current.length > items.length) {
+      thumbImgRefs.current.length = items.length;
+    }
 
     const feed = feedRef.current;
     if (!feed) {
@@ -467,17 +374,28 @@ export function NewsFeed({
     slideElapsedRef.current = 0;
     lastTickRef.current = null;
 
-    if (!leadArticleId) {
-      syncUrlForItem(items[initialIndex]);
-    }
-
     requestAnimationFrame(() => {
       feed.scrollTop = 0;
       requestAnimationFrame(() => {
         updateActiveIndex();
       });
     });
-  }, [items, leadArticleId, syncUrlForItem, updateActiveIndex]);
+  }, [items, updateActiveIndex]);
+
+  useLayoutEffect(() => {
+    if (loading || items.length === 0) {
+      return;
+    }
+
+    const img = thumbImgRefs.current[activeIndex];
+    if (!img) {
+      return;
+    }
+
+    img.style.animation = "none";
+    void img.offsetWidth;
+    img.style.animation = "";
+  }, [activeIndex, items, loading]);
 
   useEffect(() => {
     activeIndexRef.current = activeIndex;
@@ -490,30 +408,8 @@ export function NewsFeed({
   }, [activeIndex]);
 
   useEffect(() => {
-    if (loading) {
-      return;
-    }
-
-    const activeItem = items[activeIndex];
-
-    if (!activeItem || activeItem.isAd) {
-      return;
-    }
-
-    if (!hasActiveUrlSync()) {
-      return;
-    }
-
-    updateUrlWithId(activeItem.id);
-  }, [activeIndex, hasActiveUrlSync, items, loading, updateUrlWithId]);
-
-  useEffect(() => {
     return () => {
       clearGestureTimeout();
-
-      if (toastTimeoutRef.current !== null) {
-        window.clearTimeout(toastTimeoutRef.current);
-      }
 
       if (transitionTimeoutRef.current !== null) {
         window.clearTimeout(transitionTimeoutRef.current);
@@ -660,15 +556,13 @@ export function NewsFeed({
   }
 
   const activeSlideItem = items[activeIndex];
-  const newsItems = items.filter((item) => !item.isAd);
-  const currentNewsPosition = activeSlideItem?.isAd
-    ? 0
-    : newsItems.findIndex((item) => item.id === activeSlideItem?.id) + 1;
-  const totalNewsCount = newsItems.length;
+  const currentNewsPosition =
+    activeSlideItem != null
+      ? items.findIndex((item) => item.id === activeSlideItem.id) + 1
+      : 0;
+  const totalNewsCount = items.length;
   const showRankCount =
-    Boolean(activeSlideItem) &&
-    !activeSlideItem.isAd &&
-    currentNewsPosition > 0;
+    Boolean(activeSlideItem) && currentNewsPosition > 0;
 
   return (
     <main
@@ -704,9 +598,11 @@ export function NewsFeed({
             <div className={styles.thumbWrap}>
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
+                ref={(element) => {
+                  thumbImgRefs.current[index] = element;
+                }}
                 className={`${styles.thumb} ${styles[getThumbMotionVariant(item, index)]}`}
                 style={{
-                  animationDelay: getThumbMotionDelay(item, index),
                   animationPlayState: isPageActive ? "running" : "paused",
                 }}
                 src={item.imageUrl}
@@ -717,106 +613,65 @@ export function NewsFeed({
             </div>
 
             <div className={styles.overlay}>
-              {!item.isAd && (
-                <div className={styles.metaTop}>
-                  <div className={styles.metaActions}>
-                    <button
-                      type="button"
-                      className={styles.shareButton}
-                      onClick={() => handleShare(item.id)}
-                    >
-                      <Image
-                        src="/images/btn-link.png"
-                        alt=""
-                        aria-hidden="true"
-                        width={16}
-                        height={16}
-                        className={styles.shareIcon}
-                        loading="eager"
-                      />
-                      <span className={styles.srOnly}>공유하기</span>
-                    </button>
-                  </div>
-                </div>
-              )}
 
               <div className={styles.metaBottom}>
-                {item.isAd ? (
-                  // 광고 아이템 렌더링
-                  <>
-                    <div className={styles.adBadge}>
-                      <span>광고</span>
+                <div className={styles.sourceRow}>
+                  {item.sourceName ? (
+                    <p className={styles.publisher}>{item.sourceName}</p>
+                  ) : (
+                    <div className={`${styles.skeleton} ${styles.skeletonPublisher}`}></div>
+                  )}
+
+                  {item.recommendationCount !== null ? (
+                    <div className={styles.recommendBadge}>
+                      <span className={styles.recommendIcon} aria-hidden="true">
+                        🙂
+                      </span>
+                      <span className={styles.recommendCount}>
+                        {item.recommendationCount.toLocaleString("ko-KR")}
+                      </span>
                     </div>
-                    <h1 className={styles.title}>{item.title}</h1>
-                    <p className={styles.adDescription}>
-                      이곳에 광고가 표시됩니다
-                    </p>
-                  </>
+                  ) : (
+                    <div className={`${styles.skeleton} ${styles.skeletonRecommendBadge}`}></div>
+                  )}
+                </div>
+                <h1 className={styles.title}>{item.title}</h1>
+
+                {item.topComment ? (
+                  <div className={styles.commentInline}>
+                    <Image
+                      src="/images/ico-reple.png"
+                      alt=""
+                      aria-hidden="true"
+                      width={16}
+                      height={16}
+                      className={styles.commentIcon}
+                    />
+                    <p className={styles.commentText}>{item.topComment}</p>
+                  </div>
                 ) : (
-                  // 일반 뉴스 아이템 렌더링
-                  <>
-                    <div className={styles.sourceRow}>
-                      {/* 언론사 - 스켈레톤 또는 실제 데이터 */}
-                      {item.sourceName ? (
-                        <p className={styles.publisher}>{item.sourceName}</p>
-                      ) : (
-                        <div className={`${styles.skeleton} ${styles.skeletonPublisher}`}></div>
-                      )}
-                      
-                      {/* 추천수 - 스켈레톤 또는 실제 데이터 */}
-                      {item.recommendationCount !== null ? (
-                        <div className={styles.recommendBadge}>
-                          <span className={styles.recommendIcon} aria-hidden="true">
-                            🙂
-                          </span>
-                          <span className={styles.recommendCount}>
-                            {item.recommendationCount.toLocaleString("ko-KR")}
-                          </span>
-                        </div>
-                      ) : (
-                        <div className={`${styles.skeleton} ${styles.skeletonRecommendBadge}`}></div>
-                      )}
-                    </div>
-                    <h1 className={styles.title}>{item.title}</h1>
-                    
-                    {/* 댓글 - 스켈레톤, 실제 데이터, 또는 빈 상태 */}
-                    {item.topComment ? (
-                      <div className={styles.commentInline}>
-                        <Image
-                          src="/images/ico-reple.png"
-                          alt=""
-                          aria-hidden="true"
-                          width={16}
-                          height={16}
-                          className={styles.commentIcon}
-                        />
-                        <p className={styles.commentText}>{item.topComment}</p>
-                      </div>
-                    ) : (
-                      <div className={styles.commentInline}>
-                        <Image
-                          src="/images/ico-reple.png"
-                          alt=""
-                          aria-hidden="true"
-                          width={16}
-                          height={16}
-                          className={styles.commentIcon}
-                        />
-                        <p className={styles.commentText}>
-                          댓글이 없어요. 더 많은 이야기를 나눠볼까요?
-                        </p>
-                      </div>
-                    )}
-                    <a
-                      href={getArticleHref(item)}
-                      className={styles.cta}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                    >
-                      기사 보러 가기
-                    </a>
-                  </>
+                  <div className={styles.commentInline}>
+                    <Image
+                      src="/images/ico-reple.png"
+                      alt=""
+                      aria-hidden="true"
+                      width={16}
+                      height={16}
+                      className={styles.commentIcon}
+                    />
+                    <p className={styles.commentText}>
+                      댓글이 없어요. 더 많은 이야기를 나눠볼까요?
+                    </p>
+                  </div>
                 )}
+                <a
+                  href={getArticleHref(item)}
+                  className={styles.cta}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  기사 보러 가기
+                </a>
                 <div className={styles.progressTrack}>
                   <div
                     className={styles.progressBar}
@@ -830,7 +685,6 @@ export function NewsFeed({
           </article>
         </section>
       ))}
-      {toastMessage ? <div className={styles.toast}>{toastMessage}</div> : null}
     </main>
   );
 }

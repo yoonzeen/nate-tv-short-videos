@@ -13,10 +13,13 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "NateTV Shorts",
+  title: "NATE News Shorts",
   description: "세상의 속도, 네이트 뉴스",
   icons: {
-    icon: '/favicon.ico',
+    icon:
+      process.env.NEXT_PUBLIC_BASE_PATH && process.env.NEXT_PUBLIC_BASE_PATH.length > 0
+        ? `${process.env.NEXT_PUBLIC_BASE_PATH}/favicon.ico`
+        : "/favicon.ico",
   },
 };
 
@@ -25,12 +28,25 @@ export default function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const basePath = process.env.NEXT_PUBLIC_BASE_PATH ?? "";
+
   return (
     <html lang="ko" className={`${geistSans.variable} ${geistMono.variable}`}>
       <head>
-        <link rel="icon" href="/favicon.ico" sizes="any" />
-        <link rel="icon" href="/favicon.png" type="image/png" />
-        <link rel="apple-touch-icon" href="/favicon.png" />
+        <link
+          rel="icon"
+          href={`${basePath}/favicon.ico`}
+          sizes="any"
+        />
+        <link
+          rel="icon"
+          href={`${basePath}/favicon.png`}
+          type="image/png"
+        />
+        <link
+          rel="apple-touch-icon"
+          href={`${basePath}/favicon.png`}
+        />
       </head>
       <body>{children}</body>
     </html>

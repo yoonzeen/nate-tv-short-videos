@@ -11,18 +11,15 @@ export type NateNewsItem = {
   sourceName: string | null;
   topComment: string | null;
   recommendationCount: number | null;
-  isAd?: boolean;
 };
 
 export type NateNewsFeed = {
   items: NateNewsItem[];
-  leadArticleId?: string;
 };
 
 type NewsDetailMode = "all" | "top10" | "none";
 
 type BuildNateNewsFeedOptions = {
-  leadArticleId?: string;
   rankingLimit?: number;
   detailMode?: NewsDetailMode;
 };
@@ -52,7 +49,6 @@ const NATE_EMOTICON_RANK_ORIGIN =
 const NATE_EMOTICON_RANK_URL = `${NATE_EMOTICON_RANK_ORIGIN}/ranks/emoticons`;
 const NATE_EMOTICON_RANK_PAGE_URL = "https://news.nate.com/rank/emoticon";
 const NATE_EMOTICON_RANK_PAGE_PATH = "/rank/emoticon";
-const NATE_ARTICLE_BASE_URL = "https://news.nate.com/view/";
 const NATE_MOBILE_ARTICLE_BASE_URL = "https://m.news.nate.com/view/";
 const NATE_IMAGE_PREFIX = "https://thumbnews.nateimg.co.kr/mnews107x80/";
 const NATE_VIEW_IMAGE_PREFIX = "https://thumbnews.nateimg.co.kr/view610/";
@@ -65,18 +61,6 @@ const COMMENT_MID_PATTERN =
   /ArticleComment\/List\?artc_sq=\d{8}n\d+(?:&|&amp;)[^"'<>]*mid=([^"'&\s]+)/i;
 const COMMENT_TEXT_PATTERN =
   /<dd class="userText">[\s\S]*?<a[^>]*>\s*([\s\S]*?)\s*<\/a>/gi;
-const ARTICLE_SOURCE_PATTERN =
-  /<div class="author">[\s\S]*?<em><b>([^<]+)<\/b><span>/i;
-const ARTICLE_SOURCE_LINK_PATTERN =
-  /<a[^>]+href=["'](?:\/\/)?news\.nate\.com\/mediaList\?cp=[^"']+["'][^>]*>([^<]+)<\/a>/i;
-const ARTICLE_SOURCE_FALLBACK_PATTERN = /<span class="source">([^<]+)<\/span>/i;
-const ARTICLE_TITLE_META_PATTERN =
-  /<meta[^>]+property=["']og:title["'][^>]+content=(["'])([\s\S]*?)\1[^>]*>/i;
-const ARTICLE_TITLE_FALLBACK_PATTERN = /<title>([^<]+)<\/title>/i;
-const ARTICLE_IMAGE_META_PATTERN =
-  /<meta[^>]+property=["']og:image["'][^>]+content=(["'])([\s\S]*?)\1[^>]*>/i;
-const ARTICLE_IMAGE_FALLBACK_PATTERN =
-  /<img[^>]+class=["'][^"']*img[^"']*["'][^>]+src=["']([^"']+)["'][^>]*>/i;
 const EMOTICON_RANK_TOP_ITEM_PATTERN =
   /<div class="mduSubjectList f_clear">[\s\S]*?<dt><em>(\d+)[^<]*<\/em><\/dt>[\s\S]*?<a href="([^"]*\/view\/\d{8}n\d+[^"]*)"[\s\S]*?<img src="([^"]+)"[\s\S]*?<h2 class="tit">([\s\S]*?)<\/h2>[\s\S]*?<span class="emcnt"><em>([\d,]+)<\/em><\/span><span class="teCnt">([\s\S]*?)<\/span>/gi;
 const EMOTICON_RANK_LIST_ITEM_PATTERN =
@@ -296,36 +280,6 @@ async function fetchEmoticonRankItemsFromHtml(pageSize: number) {
     .slice(0, pageSize);
 }
 
-function getArticleSource(articleHtml: string) {
-  const match =
-    articleHtml.match(ARTICLE_SOURCE_PATTERN) ??
-    articleHtml.match(ARTICLE_SOURCE_LINK_PATTERN) ??
-    articleHtml.match(ARTICLE_SOURCE_FALLBACK_PATTERN);
-  const sourceName = cleanSource(match?.[1] ?? "");
-
-  return sourceName || null;
-}
-
-function getArticleTitle(articleHtml: string) {
-  const match =
-    articleHtml.match(ARTICLE_TITLE_META_PATTERN) ??
-    articleHtml.match(ARTICLE_TITLE_FALLBACK_PATTERN);
-  const rawTitle = match?.[2] ?? match?.[1] ?? "";
-  const title = cleanTitle(rawTitle).replace(/\s*:\s*네이트.*$/i, "");
-
-  return title || null;
-}
-
-function getArticleImage(articleHtml: string) {
-  const match =
-    articleHtml.match(ARTICLE_IMAGE_META_PATTERN) ??
-    articleHtml.match(ARTICLE_IMAGE_FALLBACK_PATTERN);
-  const rawImageUrl = match?.[2] ?? match?.[1] ?? "";
-  const imageUrl = normalizeImageUrl(rawImageUrl);
-
-  return imageUrl || null;
-}
-
 function mapEmoticonRankItemToNewsItem(
   item: NateEmoticonRankItem,
   fallbackRank: number,
@@ -352,20 +306,6 @@ function mapEmoticonRankItemToNewsItem(
     topComment: null,
     recommendationCount:
       typeof item.emoticonCnt === "number" ? item.emoticonCnt : null,
-  };
-}
-
-function createAdItem(adIndex: number): NateNewsItem {
-  return {
-    id: `ad_${adIndex}`,
-    rank: -1,
-    title: `광고 ${adIndex}`,
-    link: "#",
-    imageUrl: "/images/ad-banner.png",
-    sourceName: "광고",
-    topComment: null,
-    recommendationCount: null,
-    isAd: true,
   };
 }
 
@@ -416,27 +356,7 @@ async function fetchTopComment(link: string) {
   return getFirstMatchText(commentHtml, COMMENT_TEXT_PATTERN);
 }
 
-async function fetchTopCommentFromArticleHtml(
-  articleId: string,
-  articleHtml: string,
-) {
-  const mid = getArticleMid(articleHtml);
-
-  if (!mid) {
-    return null;
-  }
-
-  const commentUrl = `${NATE_COMMENT_BASE_URL}?artc_sq=${articleId}&mid=${mid}`;
-  const commentHtml = await fetchNateDocument(commentUrl);
-
-  return getFirstMatchText(commentHtml, COMMENT_TEXT_PATTERN);
-}
-
-async function enrichRankedItems(
-  items: NateNewsItem[],
-  detailMode: NewsDetailMode,
-  leadArticleId?: string,
-) {
+async function enrichRankedItems(items: NateNewsItem[], detailMode: NewsDetailMode) {
   if (detailMode === "none") {
     return items;
   }
@@ -445,7 +365,7 @@ async function enrichRankedItems(
 
   return Promise.all(
     items.map(async (item, index) => {
-      if (index >= detailCount && item.id !== leadArticleId) {
+      if (index >= detailCount) {
         return item;
       }
 
@@ -465,109 +385,31 @@ async function enrichRankedItems(
   );
 }
 
-function composeOrderedNewsItems(
-  rankedItems: NateNewsItem[],
-  leadArticle: NateNewsItem | null,
-) {
-  const dedupedRankedItems = leadArticle
-    ? rankedItems.filter((item) => item.id !== leadArticle.id)
-    : rankedItems;
-
-  return leadArticle ? [leadArticle, ...dedupedRankedItems] : dedupedRankedItems;
-}
-
-function insertAds(items: NateNewsItem[]) {
-  const itemsWithAds: NateNewsItem[] = [];
-  let adCounter = 1;
-  let rankedNewsCount = 0;
-
-  for (let i = 0; i < items.length; i += 1) {
-    const item = items[i];
-    itemsWithAds.push(item);
-
-    if (item.rank >= 1) {
-      rankedNewsCount += 1;
-    }
-
-    if (rankedNewsCount > 0 && rankedNewsCount % 10 === 0) {
-      itemsWithAds.push(createAdItem(adCounter));
-      adCounter += 1;
-    }
+function shuffleArray<T>(items: T[]): T[] {
+  const next = [...items];
+  for (let i = next.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(Math.random() * (i + 1));
+    const a = next[i];
+    const b = next[j];
+    next[i] = b;
+    next[j] = a;
   }
-
-  return itemsWithAds;
-}
-
-export async function fetchNateArticleById(articleId: string) {
-  if (!ARTICLE_ID_PATTERN.test(`/view/${articleId}`)) {
-    return null;
-  }
-
-  const pcLink = `${NATE_ARTICLE_BASE_URL}${articleId}`;
-  const mobileLink = `${NATE_MOBILE_ARTICLE_BASE_URL}${articleId}`;
-  const articleHtml = await fetchNateDocument(pcLink);
-  const title = getArticleTitle(articleHtml);
-  const imageUrl = getArticleImage(articleHtml);
-
-  if (!title || !imageUrl) {
-    return null;
-  }
-
-  const [topComment, rankedItems] = await Promise.all([
-    fetchTopCommentFromArticleHtml(articleId, articleHtml).catch((error) => {
-      console.error("Failed to fetch Nate lead comment", articleId, error);
-      return null;
-    }),
-    fetchEmoticonRankItems(EMOTICON_PAGE_SIZE).catch((error) => {
-      console.error("Failed to fetch Nate emoticon ranks", error);
-      return [] as NateEmoticonRankItem[];
-    }),
-  ]);
-  const matchedRankItem = rankedItems.find((item) => {
-    const rankedArticleId = getArticleId(item.mobileUrl ?? item.pcUrl ?? "");
-
-    return rankedArticleId === articleId;
-  });
-
-  return {
-    id: articleId,
-    rank: 0,
-    title,
-    link: pcLink,
-    mobileLink,
-    pcLink,
-    imageUrl,
-    sourceName: getArticleSource(articleHtml),
-    topComment,
-    recommendationCount:
-      typeof matchedRankItem?.emoticonCnt === "number"
-        ? matchedRankItem.emoticonCnt
-        : null,
-  } satisfies NateNewsItem;
+  return next;
 }
 
 export async function buildNateNewsFeed({
-  leadArticleId,
   rankingLimit = DEFAULT_RANKING_LIMIT,
   detailMode = "all",
 }: BuildNateNewsFeedOptions = {}): Promise<NateNewsFeed> {
   const pageSize = Math.min(rankingLimit, EMOTICON_PAGE_SIZE);
-  const [rankResponseItems, leadArticle] = await Promise.all([
-    fetchEmoticonRankItems(pageSize),
-    leadArticleId ? fetchNateArticleById(leadArticleId) : Promise.resolve(null),
-  ]);
+  const rankResponseItems = await fetchEmoticonRankItems(pageSize);
   const rankedItems = rankResponseItems
     .map((item, index) => mapEmoticonRankItemToNewsItem(item, index + 1))
     .filter((item): item is NateNewsItem => item !== null);
-  const enrichedItems = await enrichRankedItems(
-    rankedItems,
-    detailMode,
-    leadArticleId,
-  );
-  const orderedItems = composeOrderedNewsItems(enrichedItems, leadArticle);
+  const enrichedItems = await enrichRankedItems(rankedItems, detailMode);
+  const shuffledItems = shuffleArray(enrichedItems);
 
   return {
-    items: insertAds(orderedItems),
-    leadArticleId: leadArticle?.id,
+    items: shuffledItems,
   };
 }

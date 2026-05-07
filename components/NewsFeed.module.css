@@ -70,20 +70,22 @@
   position: absolute;
   inset: 0;
   overflow: hidden;
+  background: #0a0a0a;
 }
 
 .thumb {
   width: 100%;
   height: 100%;
-  object-fit: cover;
-  background: #111;
+  object-fit: contain;
+  object-position: center;
+  background: #0a0a0a;
   transform-origin: center center;
-  transform: scale(1.22);
-  animation-duration: 10s;
-  animation-timing-function: linear;
-  animation-iteration-count: infinite;
-  animation-direction: alternate;
-  animation-fill-mode: both;
+  transform: scale(2.3);
+  animation-duration: 5s;
+  animation-timing-function: cubic-bezier(0.45, 0, 0.55, 1);
+  animation-iteration-count: 1;
+  animation-direction: normal;
+  animation-fill-mode: forwards;
   will-change: transform;
   backface-visibility: hidden;
   transform-style: preserve-3d;
@@ -97,65 +99,37 @@
   animation-name: thumbPanRight;
 }
 
-.panUp {
-  animation-name: thumbPanUp;
-}
-
-.panDown {
-  animation-name: thumbPanDown;
-}
-
 .zoomIn {
   animation-name: thumbZoomIn;
 }
 
 @keyframes thumbPanLeft {
   from {
-    transform: scale(1.22) translate3d(0, 0, 0);
+    transform: scale(2.48) translate3d(0, 0, 0);
   }
 
   to {
-    transform: scale(1.24) translate3d(-10%, 0, 0);
+    transform: scale(2.48) translate3d(-6%, 0, 0);
   }
 }
 
 @keyframes thumbPanRight {
   from {
-    transform: scale(1.22) translate3d(0, 0, 0);
+    transform: scale(2.48) translate3d(0, 0, 0);
   }
 
   to {
-    transform: scale(1.24) translate3d(10%, 0, 0);
-  }
-}
-
-@keyframes thumbPanUp {
-  from {
-    transform: scale(1.22) translate3d(0, 0, 0);
-  }
-
-  to {
-    transform: scale(1.24) translate3d(0, -10%, 0);
-  }
-}
-
-@keyframes thumbPanDown {
-  from {
-    transform: scale(1.22) translate3d(0, 0, 0);
-  }
-
-  to {
-    transform: scale(1.24) translate3d(0, 10%, 0);
+    transform: scale(2.48) translate3d(6%, 0, 0);
   }
 }
 
 @keyframes thumbZoomIn {
   from {
-    transform: scale(1.22) translate3d(0, 0, 0);
+    transform: scale(2.48) translate3d(0, 0, 0);
   }
 
   to {
-    transform: scale(1.34) translate3d(0, 0, 0);
+    transform: scale(3.4) translate3d(0, 0, 0);
   }
 }
 
@@ -234,14 +208,6 @@
   background-color:rgba(255,255,255,0.15);
   backdrop-filter: blur(6px);
   cursor:pointer;
-}
-
-.shareIcon {
-  width: 36px;
-  height: 36px;
-  display: block;
-  object-fit: contain;
-  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.35));
 }
 
 .metaBottom {
@@ -389,23 +355,6 @@
   background: rgba(255, 255, 255, 0.18);
 }
 
-.toast {
-  position: fixed;
-  left: 50%;
-  bottom: calc(24px + env(safe-area-inset-bottom, 0px));
-  z-index: 20;
-  transform: translateX(-50%);
-  padding: 12px 16px;
-  border: 1px solid rgba(255, 255, 255, 0.14);
-  border-radius: 999px;
-  background: rgba(17, 17, 17, 0.9);
-  color: #fff;
-  font-size: 0.82rem;
-  font-weight: 700;
-  backdrop-filter: blur(12px);
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.28);
-}
-
 .empty {
   display: flex;
   align-items: center;
@@ -416,33 +365,11 @@
   text-align: center;
 }
 
-/* 광고 관련 스타일 */
-.adBadge {
-  display: inline-flex;
-  align-items: center;
-  padding: 4px 8px;
-  background-color: rgba(255, 193, 7, 0.9);
-  color: #000;
-  border-radius: 12px;
-  font-size: 12px;
-  font-weight: 600;
-  margin-bottom: 8px;
-  text-shadow: none;
-}
-
-.adDescription {
-  color: rgba(255, 255, 255, 0.8);
-  font-size: 14px;
-  line-height: 1.4;
-  margin: 8px 0;
-  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8);
-}
-
 /* 스켈레톤 UI */
 .skeleton {
-  background: linear-gradient(90deg, 
-    rgba(255, 255, 255, 0.05), 
-    rgba(255, 255, 255, 0.15), 
+  background: linear-gradient(90deg,
+    rgba(255, 255, 255, 0.05),
+    rgba(255, 255, 255, 0.15),
     rgba(255, 255, 255, 0.05)
   );
   background-size: 200% 100%;

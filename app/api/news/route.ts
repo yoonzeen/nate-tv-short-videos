@@ -3,16 +3,10 @@ import { buildNateNewsFeed } from "@/lib/nateNews";
 
 export const dynamic = "force-dynamic";
 
-export async function GET(request: Request) {
-  const { searchParams } = new URL(request.url);
-  const quick = searchParams.get("quick") === "true";
-  const requestedLeadArticleId = searchParams.get("id") || undefined;
-
+export async function GET() {
   try {
     const feed = await buildNateNewsFeed({
-      leadArticleId: requestedLeadArticleId,
       rankingLimit: 20,
-      detailMode: quick ? "top10" : "all",
     });
 
     return NextResponse.json(feed);
