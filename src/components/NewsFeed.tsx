@@ -97,12 +97,22 @@ export function NewsFeed({ items: initialItems }: NewsFeedProps) {
   const navigationLockedRef = useRef(false);
   const suppressScrollGestureRef = useRef(false);
 
-  /** dev에서는 항상 /api/news → Vite proxy가 잡음 (base가 /shortnews/여도 동일) */
+  /**
+   * - dev: Vite 프록시 → 로컬 Express
+   * - prod: 기본은 같은 origin의 상대 경로(base 아래 /api/news)
+   * - GitLab Pages 등 정적 호스트만 쓸 때: 빌드 전 `VITE_NEWS_API_URL`(절대 URL)로 Vercel 등 외부 API 지정
+   */
   const newsApiUrl = import.meta.env.DEV
     ? "/api/news"
-    : import.meta.env.BASE_URL.endsWith("/")
-      ? `${import.meta.env.BASE_URL}api/news`
-      : `${import.meta.env.BASE_URL}/api/news`;
+    : (() => {
+        const external = import.meta.env.VITE_NEWS_API_URL?.trim();
+        if (external) {
+          return external;
+        }
+        return import.meta.env.BASE_URL.endsWith("/")
+          ? `${import.meta.env.BASE_URL}api/news`
+          : `${import.meta.env.BASE_URL}/api/news`;
+      })();
 
   const normalizeIndex = useCallback(
     (index: number) => {

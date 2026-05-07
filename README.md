@@ -118,10 +118,9 @@ type NateNewsFeed = {
 3. 그 외 로컬/일반 빌드 → `/`
 
 - **GitHub Actions**: `.github/workflows/deploy-pages.yml`에서 `GITHUB_PAGES=true` 후 `npm run build`, 산출물은 `out/`.
-- **GitLab Pages**: `.gitlab-ci.yml`에서 `GITLAB_PAGES=true` 후 빌드, `out`을 **`public`**으로 옮겨 업로드(Pages 규칙).
+- **GitLab Pages**: `.gitlab-ci.yml`에서 `GITLAB_PAGES=true` 후 빌드, `out`을 **`public`**으로 옮겨 업로드(Pages 규칙). Pages는 **정적 파일만**이라 **`/api/news`는 존재하지 않습니다.** 피드를 쓰려면 별도로 두는 **뉴스 API의 전체 URL**을 GitLab **CI/CD Variables**의 **`VITE_NEWS_API_URL`**에 넣고 빌드하세요(예: `https://api.example.com/news` 형태). 클라이언트와 API 도메인이 다르므로 API 쪽에서 **CORS**를 허용해야 합니다.
 
-GitHub Pages·정적 호스팅만 쓰는 경우 **`/api/news`는 서버가 없어 동작하지 않습니다.**  
-피드가 필요하면 Node 서버(`npm run start`) 등 API를 제공하는 호스팅을 쓰거나, 별도 백엔드를 두어야 합니다.
+GitHub Pages·정적 호스팅만 쓰는 경우에도 마찬가지로, **`VITE_NEWS_API_URL`**로 외부에 둔 API를 가리키거나, **`npm run start`** 등으로 Node에서 정적 + `/api/news`를 함께 서빙하면 됩니다.
 
 ## 프로젝트 구조
 

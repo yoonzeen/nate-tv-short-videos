@@ -67,7 +67,9 @@ dist/
 - 빌드 시 **`GITLAB_PAGES=true`** 또는 **`GITHUB_PAGES=true`** 등으로 `vite.config.ts`의 `base`가 **`/shortnews/`** 가 되도록 맞출 것.
 - 산출물: **`out/`** (GitHub Actions 아티팩트는 이 경로).
 - GitLab Pages는 CI에서 **`out` → `public`** 으로 옮긴 뒤 아티팩트 업로드(`.gitlab-ci.yml` 참고).
-- **정적 호스팅만으로는 `/api/news`가 없음** — 뉴스 목록이 필요하면 별도 API 서버 또는 `npm run start` 형태 배포 필요.
+- **정적 호스팅에는 `/api/news` 백엔드가 없습니다.** 피드가 필요하면:
+  - GitLab CI **CI/CD Variables**에 **`VITE_NEWS_API_URL`** = 뉴스 API **절대 URL**을 넣고 빌드하거나,
+  - **`npm run start`** / 별도 Node 호스팅으로 API를 제공하세요.
 
 ## 배포 전 테스트
 

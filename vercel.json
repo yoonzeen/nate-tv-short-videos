@@ -1,5 +1,16 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "buildCommand": "npm run build",
-  "outputDirectory": "out"
+  "outputDirectory": "out",
+  "rewrites": [
+    {
+      "source": "/shortnews/api/news",
+      "destination": "/api/news"
+    }
+  ],
+  "functions": {
+    "api/news.ts": {
+      "maxDuration": 60
+    }
+  }
 }
