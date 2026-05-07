@@ -46,7 +46,6 @@ const NATE_EMOTICON_RANK_ORIGIN =
     ? "http://api.news.nate.com"
     : "http://api.news.nate.com:8080";
 
-const NATE_EMOTICON_RANK_URL = `${NATE_EMOTICON_RANK_ORIGIN}/ranks/emoticons`;
 const NATE_EMOTICON_RANK_PAGE_URL = "https://news.nate.com/rank/emoticon";
 const NATE_EMOTICON_RANK_PAGE_PATH = "/rank/emoticon";
 const NATE_MOBILE_ARTICLE_BASE_URL = "https://m.news.nate.com/view/";
@@ -75,6 +74,18 @@ const REQUEST_HEADERS = {
 const DEFAULT_RANKING_LIMIT = 20;
 const QUICK_DETAIL_COUNT = 10;
 const EMOTICON_PAGE_SIZE = 20;
+
+/** Vercel 등에서 JSON 포트/스킴이 막힐 수 있어 순서대로 시도 */
+function getEmoticonJsonRankBaseCandidates(): string[] {
+  if (process.env.VERCEL) {
+    return [
+      "http://api.news.nate.com:8080",
+      "http://api.news.nate.com",
+      "https://api.news.nate.com",
+    ];
+  }
+  return [NATE_EMOTICON_RANK_ORIGIN];
+}
 
 function decodeHtmlEntities(value: string) {
   return value
@@ -311,19 +322,30 @@ function mapEmoticonRankItemToNewsItem(
 
 async function fetchEmoticonRankItems(pageSize = EMOTICON_PAGE_SIZE) {
   let items: NateEmoticonRankItem[] = [];
+  const params = new URLSearchParams({
+    pageSize: String(pageSize),
+  });
 
-  try {
-    const params = new URLSearchParams({
-      pageSize: String(pageSize),
-    });
-    const response = await fetchNateJson<NateEmoticonRankResponse>(
-      `${NATE_EMOTICON_RANK_URL}?${params.toString()}`,
-    );
-    items = response.data ?? [];
-  } catch (error) {
+  const bases = getEmoticonJsonRankBaseCandidates();
+  let lastJsonError: unknown;
+
+  for (const base of bases) {
+    try {
+      const url = `${base.replace(/\/$/, "")}/ranks/emoticons?${params.toString()}`;
+      const response = await fetchNateJson<NateEmoticonRankResponse>(url);
+      items = response.data ?? [];
+      if (items.length > 0) {
+        break;
+      }
+    } catch (error) {
+      lastJsonError = error;
+    }
+  }
+
+  if (items.length === 0) {
     console.warn(
-      "Failed to fetch Nate emoticon JSON API, falling back to HTML ranking page.",
-      error,
+      "Failed to fetch Nate emoticon JSON API (all bases), falling back to HTML ranking page.",
+      lastJsonError,
     );
 
     items = await fetchEmoticonRankItemsFromHtml(pageSize);
