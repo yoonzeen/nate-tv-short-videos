@@ -78,6 +78,7 @@ export function NewsFeed({ items: initialItems }: NewsFeedProps) {
   const [items, setItems] = useState<NewsItem[]>(() => initialItems ?? []);
   const [loading, setLoading] = useState(!(initialItems && initialItems.length > 0));
   const [activeIndex, setActiveIndex] = useState(0);
+  const [activeLoopIndex, setActiveLoopIndex] = useState(0);
   const [progress, setProgress] = useState(0);
   const [isGestureActive, setIsGestureActive] = useState(false);
   const [isTransitioning, setIsTransitioning] = useState(false);
@@ -94,6 +95,7 @@ export function NewsFeed({ items: initialItems }: NewsFeedProps) {
   const transitionTimeoutRef = useRef<number | null>(null);
   const gestureTimeoutRef = useRef<number | null>(null);
   const activeIndexRef = useRef(0);
+  const activeLoopIndexRef = useRef(0);
   const navigationLockedRef = useRef(false);
   const suppressScrollGestureRef = useRef(false);
 
@@ -114,16 +116,9 @@ export function NewsFeed({ items: initialItems }: NewsFeedProps) {
           : `${import.meta.env.BASE_URL}/api/news`;
       })();
 
-  const normalizeIndex = useCallback(
-    (index: number) => {
-      if (items.length === 0) {
-        return 0;
-      }
-
-      return ((index % items.length) + items.length) % items.length;
-    },
-    [items.length],
-  );
+  const hasLoop = items.length > 1;
+  const loopCount = hasLoop ? items.length + 2 : items.length;
+  const startLoopIndex = hasLoop ? 1 : 0;
 
   useEffect(() => {
     setIsMobileDevice(window.matchMedia("(max-width: 768px)").matches);
@@ -168,13 +163,16 @@ export function NewsFeed({ items: initialItems }: NewsFeedProps) {
 
   useEffect(() => {
     const nextItems = initialItems ?? [];
+    const nextHasLoop = nextItems.length > 1;
 
     setItems(nextItems);
     setLoading(!(initialItems && initialItems.length > 0));
     setActiveIndex(0);
+    setActiveLoopIndex(nextHasLoop ? 1 : 0);
     setProgress(0);
 
     activeIndexRef.current = 0;
+    activeLoopIndexRef.current = nextHasLoop ? 1 : 0;
     slideElapsedRef.current = 0;
     lastTickRef.current = null;
     navigationLockedRef.current = false;
@@ -257,29 +255,75 @@ export function NewsFeed({ items: initialItems }: NewsFeedProps) {
         return;
       }
 
-      const nextIndex = normalizeIndex(index);
-      const current = activeIndexRef.current;
+      const total = items.length;
+      const currentReal = activeIndexRef.current;
+      const currentLoop = activeLoopIndexRef.current;
 
-      if (nextIndex === current) {
+      let targetLoopIndex = index + startLoopIndex;
+      let nextRealIndex = index;
+      let needsResetAfterScroll = false;
+      let resetLoopIndex = targetLoopIndex;
+
+      if (hasLoop) {
+        if (index < 0) {
+          // 1페이지에서 이전으로: "20(클론)"으로 1칸 이동 후 → 진짜 20으로 순간 이동
+          targetLoopIndex = 0;
+          nextRealIndex = total - 1;
+          needsResetAfterScroll = true;
+          resetLoopIndex = total; // last real slide in loop
+        } else if (index >= total) {
+          // 20페이지에서 다음으로: "1(클론)"으로 1칸 이동 후 → 진짜 1로 순간 이동
+          targetLoopIndex = total + 1;
+          nextRealIndex = 0;
+          needsResetAfterScroll = true;
+          resetLoopIndex = 1; // first real slide in loop
+        }
+      } else {
+        // loop 미사용(아이템 1개): 그냥 그 자리에 둠
+        targetLoopIndex = 0;
+        nextRealIndex = 0;
+      }
+
+      if (nextRealIndex === currentReal && targetLoopIndex === currentLoop) {
         return;
       }
 
       navigationLockedRef.current = true;
       setIsTransitioning(true);
-      setActiveIndex(nextIndex);
-      activeIndexRef.current = nextIndex;
-      scrollItemIntoView(itemRefs.current[nextIndex], "smooth");
+      setActiveIndex(nextRealIndex);
+      setActiveLoopIndex(targetLoopIndex);
+      activeIndexRef.current = nextRealIndex;
+      activeLoopIndexRef.current = targetLoopIndex;
+      scrollItemIntoView(itemRefs.current[targetLoopIndex], "smooth");
 
       if (transitionTimeoutRef.current !== null) {
         window.clearTimeout(transitionTimeoutRef.current);
       }
       transitionTimeoutRef.current = window.setTimeout(() => {
+        if (needsResetAfterScroll && feedRef.current) {
+          const feed = feedRef.current;
+          const resetTop =
+            itemRefs.current[resetLoopIndex]?.offsetTop ??
+            resetLoopIndex *
+              (itemRefs.current[startLoopIndex]?.getBoundingClientRect().height ||
+                feed.clientHeight ||
+                1);
+
+          suppressScrollGestureRef.current = true;
+          feed.scrollTop = resetTop;
+          setActiveLoopIndex(resetLoopIndex);
+          activeLoopIndexRef.current = resetLoopIndex;
+          window.requestAnimationFrame(() => {
+            suppressScrollGestureRef.current = false;
+          });
+        }
+
         navigationLockedRef.current = false;
         setIsTransitioning(false);
         transitionTimeoutRef.current = null;
       }, 300);
     },
-    [items, normalizeIndex, scrollItemIntoView],
+    [hasLoop, items.length, scrollItemIntoView, startLoopIndex],
   );
 
   const getArticleHref = useCallback(
@@ -326,20 +370,64 @@ export function NewsFeed({ items: initialItems }: NewsFeedProps) {
     }
 
     const slideHeight =
-      itemRefs.current[0]?.getBoundingClientRect().height ||
+      itemRefs.current[startLoopIndex]?.getBoundingClientRect().height ||
       feedElement.clientHeight ||
       1;
 
     const rawIndex = Math.round(feedElement.scrollTop / slideHeight);
-    const closestIndex = Math.max(
+    const closestLoopIndex = Math.max(
       0,
-      Math.min(items.length - 1, rawIndex),
+      Math.min(loopCount - 1, rawIndex),
     );
 
-    setActiveIndex((currentIndex) =>
-      currentIndex === closestIndex ? currentIndex : closestIndex,
+    if (hasLoop) {
+      const expectedTop =
+        itemRefs.current[closestLoopIndex]?.offsetTop ?? closestLoopIndex * slideHeight;
+      const isSnapped = Math.abs(feedElement.scrollTop - expectedTop) < 2;
+      const isTopClone = closestLoopIndex === 0;
+      const isBottomClone = closestLoopIndex === loopCount - 1;
+
+      if (isSnapped && (isTopClone || isBottomClone)) {
+        const total = items.length;
+        const resetLoopIndex = isTopClone ? total : 1;
+        const resetRealIndex = isTopClone ? total - 1 : 0;
+        const resetTop =
+          itemRefs.current[resetLoopIndex]?.offsetTop ?? resetLoopIndex * slideHeight;
+
+        suppressScrollGestureRef.current = true;
+        feedElement.scrollTop = resetTop;
+        setActiveLoopIndex(resetLoopIndex);
+        setActiveIndex(resetRealIndex);
+        activeLoopIndexRef.current = resetLoopIndex;
+        activeIndexRef.current = resetRealIndex;
+
+        window.requestAnimationFrame(() => {
+          suppressScrollGestureRef.current = false;
+        });
+        return;
+      }
+    }
+
+    const closestRealIndex = (() => {
+      if (!hasLoop) {
+        return closestLoopIndex;
+      }
+      if (closestLoopIndex === 0) {
+        return items.length - 1;
+      }
+      if (closestLoopIndex === loopCount - 1) {
+        return 0;
+      }
+      return closestLoopIndex - 1;
+    })();
+
+    setActiveLoopIndex((current) =>
+      current === closestLoopIndex ? current : closestLoopIndex,
     );
-  }, [items]);
+    setActiveIndex((current) =>
+      current === closestRealIndex ? current : closestRealIndex,
+    );
+  }, [hasLoop, items.length, loopCount, startLoopIndex]);
 
   useEffect(() => {
     scrollRafRef.current = window.requestAnimationFrame(() => {
@@ -364,11 +452,11 @@ export function NewsFeed({ items: initialItems }: NewsFeedProps) {
       return;
     }
 
-    if (itemRefs.current.length > items.length) {
-      itemRefs.current.length = items.length;
+    if (itemRefs.current.length > loopCount) {
+      itemRefs.current.length = loopCount;
     }
-    if (thumbImgRefs.current.length > items.length) {
-      thumbImgRefs.current.length = items.length;
+    if (thumbImgRefs.current.length > loopCount) {
+      thumbImgRefs.current.length = loopCount;
     }
 
     const feed = feedRef.current;
@@ -376,28 +464,36 @@ export function NewsFeed({ items: initialItems }: NewsFeedProps) {
       return;
     }
 
-    feed.scrollTop = 0;
-    const initialIndex = 0;
-    activeIndexRef.current = initialIndex;
-    setActiveIndex(initialIndex);
+    const initialRealIndex = 0;
+    const initialLoopIndex = startLoopIndex;
+    activeIndexRef.current = initialRealIndex;
+    activeLoopIndexRef.current = initialLoopIndex;
+    setActiveIndex(initialRealIndex);
+    setActiveLoopIndex(initialLoopIndex);
     setProgress(0);
     slideElapsedRef.current = 0;
     lastTickRef.current = null;
 
     requestAnimationFrame(() => {
-      feed.scrollTop = 0;
+      const initialTop =
+        itemRefs.current[initialLoopIndex]?.offsetTop ??
+        initialLoopIndex *
+          (itemRefs.current[startLoopIndex]?.getBoundingClientRect().height ||
+            feed.clientHeight ||
+            1);
+      feed.scrollTop = initialTop;
       requestAnimationFrame(() => {
         updateActiveIndex();
       });
     });
-  }, [items, updateActiveIndex]);
+  }, [items, loopCount, startLoopIndex, updateActiveIndex]);
 
   useLayoutEffect(() => {
     if (loading || items.length === 0) {
       return;
     }
 
-    const img = thumbImgRefs.current[activeIndex];
+    const img = thumbImgRefs.current[activeLoopIndex];
     if (!img) {
       return;
     }
@@ -405,11 +501,15 @@ export function NewsFeed({ items: initialItems }: NewsFeedProps) {
     img.style.animation = "none";
     void img.offsetWidth;
     img.style.animation = "";
-  }, [activeIndex, items, loading]);
+  }, [activeLoopIndex, items, loading]);
 
   useEffect(() => {
     activeIndexRef.current = activeIndex;
   }, [activeIndex]);
+
+  useEffect(() => {
+    activeLoopIndexRef.current = activeLoopIndex;
+  }, [activeLoopIndex]);
 
   useEffect(() => {
     slideElapsedRef.current = 0;
@@ -563,13 +663,46 @@ export function NewsFeed({ items: initialItems }: NewsFeedProps) {
   }
 
   const activeSlideItem = items[activeIndex];
-  const currentNewsPosition =
-    activeSlideItem != null
-      ? items.findIndex((item) => item.id === activeSlideItem.id) + 1
-      : 0;
+  const currentNewsPosition = activeSlideItem != null ? activeIndex + 1 : 0;
   const totalNewsCount = items.length;
   const showRankCount =
     Boolean(activeSlideItem) && currentNewsPosition > 0;
+
+  const slides = (() => {
+    if (!hasLoop) {
+      return items.map((item, loopIndex) => ({
+        key: item.id,
+        item,
+        realIndex: loopIndex,
+        loopIndex,
+      }));
+    }
+
+    const total = items.length;
+    const lastItem = items[total - 1];
+    const firstItem = items[0];
+
+    return [
+      {
+        key: `clone:tail:${lastItem.id}`,
+        item: lastItem,
+        realIndex: total - 1,
+        loopIndex: 0,
+      },
+      ...items.map((item, realIndex) => ({
+        key: item.id,
+        item,
+        realIndex,
+        loopIndex: realIndex + 1,
+      })),
+      {
+        key: `clone:head:${firstItem.id}`,
+        item: firstItem,
+        realIndex: 0,
+        loopIndex: total + 1,
+      },
+    ];
+  })();
 
   return (
     <main
@@ -593,11 +726,11 @@ export function NewsFeed({ items: initialItems }: NewsFeedProps) {
         ) : null}
       </div>
 
-      {items.map((item, index) => (
+      {slides.map(({ key, item, realIndex, loopIndex }) => (
         <section
-          key={item.id}
+          key={key}
           ref={(element) => {
-            itemRefs.current[index] = element;
+            itemRefs.current[loopIndex] = element;
           }}
           className={styles.snapItem}
         >
@@ -605,15 +738,15 @@ export function NewsFeed({ items: initialItems }: NewsFeedProps) {
             <div className={styles.thumbWrap}>
               <img
                 ref={(element) => {
-                  thumbImgRefs.current[index] = element;
+                  thumbImgRefs.current[loopIndex] = element;
                 }}
-                className={`${styles.thumb} ${styles[getThumbMotionVariant(item, index)]}`}
+                className={`${styles.thumb} ${styles[getThumbMotionVariant(item, realIndex)]}`}
                 style={{
                   animationPlayState: isPageActive ? "running" : "paused",
                 }}
                 src={item.imageUrl}
                 alt={item.title}
-                loading={index === 0 ? "eager" : "lazy"}
+                loading={realIndex === 0 ? "eager" : "lazy"}
                 decoding="async"
               />
             </div>
@@ -682,7 +815,7 @@ export function NewsFeed({ items: initialItems }: NewsFeedProps) {
                   <div
                     className={styles.progressBar}
                     style={{
-                      transform: `scaleX(${index === activeIndex ? progress : 0})`,
+                      transform: `scaleX(${realIndex === activeIndex ? progress : 0})`,
                     }}
                   />
                 </div>
