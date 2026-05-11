@@ -1,5 +1,7 @@
 .feed {
-  height: 100svh;
+  /* 모바일 주소창/툴바 변화로 100vh/100svh가 어긋나는 케이스가 있어
+     JS에서 계산한 실제 뷰포트 높이를 우선 사용한다. */
+  height: var(--feed-height, 100svh);
   overflow-y: auto;
   scroll-snap-type: y mandatory;
   touch-action: pan-y;
@@ -27,6 +29,22 @@
   pointer-events: none;
 }
 
+.bottomOverlay {
+  position: fixed;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 10;
+  width: 100%;
+  max-width: 500px;
+  padding: 0 18px;
+  bottom: calc(
+    18px +
+    env(safe-area-inset-bottom, 0px) +
+    var(--vv-bottom-inset, 0px)
+  );
+  pointer-events: none;
+}
+
 .brand {
   font-size: 1.05rem;
   font-weight: 700;
@@ -46,14 +64,8 @@
   font-weight: 600;
 }
 
-.guide {
-  margin-top: 4px;
-  color: rgba(255, 255, 255, 0.75);
-  font-size: 11px;
-}
-
 .snapItem {
-  height: 100svh;
+  height: var(--feed-height, 100svh);
   scroll-snap-align: start;
   scroll-snap-stop: always;
 }
@@ -76,66 +88,14 @@
 .thumb {
   width: 100%;
   height: 100%;
-  object-fit: contain;
-  object-position: center;
+  object-fit: cover;
+  object-position: 50% 50%;
   background: #0a0a0a;
-  transform-origin: center center;
-  transform: scale(2.3);
-  animation-duration: 5s;
-  animation-timing-function: cubic-bezier(0.45, 0, 0.55, 1);
-  animation-iteration-count: 1;
-  animation-direction: normal;
-  animation-fill-mode: forwards;
-  will-change: transform;
   backface-visibility: hidden;
-  transform-style: preserve-3d;
-}
-
-.panLeft {
-  animation-name: thumbPanLeft;
-}
-
-.panRight {
-  animation-name: thumbPanRight;
-}
-
-.zoomIn {
-  animation-name: thumbZoomIn;
-}
-
-@keyframes thumbPanLeft {
-  from {
-    transform: scale(2.48) translate3d(0, 0, 0);
-  }
-
-  to {
-    transform: scale(2.48) translate3d(-6%, 0, 0);
-  }
-}
-
-@keyframes thumbPanRight {
-  from {
-    transform: scale(2.48) translate3d(0, 0, 0);
-  }
-
-  to {
-    transform: scale(2.48) translate3d(6%, 0, 0);
-  }
-}
-
-@keyframes thumbZoomIn {
-  from {
-    transform: scale(2.48) translate3d(0, 0, 0);
-  }
-
-  to {
-    transform: scale(3.4) translate3d(0, 0, 0);
-  }
 }
 
 @media (prefers-reduced-motion: reduce) {
   .thumb {
-    animation: none;
     transform: none;
     will-change: auto;
   }
@@ -169,7 +129,6 @@
 .progressTrack {
   width: 100%;
   height: 2px;
-  margin-top: 28px;
   border-radius: 999px;
   overflow: hidden;
   background: rgba(255, 255, 255, 0.22);
@@ -182,38 +141,14 @@
   transform-origin: left center;
 }
 
-.metaTop {
-  position: absolute;
-  right: 18px;
-  top: 18px;
-  z-index:10;
-}
-
-.metaActions {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.shareButton {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 38px;
-  height: 38px;
-  padding: 0;
-  border: 1px solid rgba(255, 255, 255, 0.18);
-  border-radius: 50%;
-  color: #fff;
-  background-color:rgba(255,255,255,0.15);
-  backdrop-filter: blur(6px);
-  cursor:pointer;
-}
-
 .metaBottom {
   width: 100%;
   max-width: 100%;
-  padding-bottom: calc(34px + env(safe-area-inset-bottom, 0px));
+  padding-bottom: calc(
+    34px +
+    env(safe-area-inset-bottom, 0px) +
+    var(--vv-bottom-inset, 0px)
+  );
   position:relative;
 }
 
@@ -225,10 +160,6 @@
   color: rgba(255, 255, 255, 0.88);
   font-size: 12px;
   font-weight: 600;
-}
-
-.dot {
-  opacity: 0.5;
 }
 
 .title {
@@ -288,18 +219,6 @@
   right:3px;
   top:50%;
   transform:translateY(-50%);
-}
-
-.srOnly {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  padding: 0;
-  margin: -1px;
-  overflow: hidden;
-  clip: rect(0, 0, 0, 0);
-  white-space: nowrap;
-  border: 0;
 }
 
 .commentInline {
@@ -399,11 +318,4 @@
   position: absolute;
   left: 0;
   top: 0;
-}
-
-.skeletonComment {
-  height: 32px;
-  width: 100%;
-  border-radius: 16px;
-  margin-top: 8px;
 }

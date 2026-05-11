@@ -11,13 +11,10 @@ import styles from "./NewsFeed.module.css";
 const SLIDE_DURATION_MS = 5_000;
 const SWIPE_ANIMATION_RESUME_DELAY_MS = 180;
 
-const THUMB_MOTION_VARIANTS = [
-  "panLeft",
-  "panRight",
-  "zoomIn",
-] as const;
-
+const THUMB_MOTION_VARIANTS = ["panLeft", "panRight"] as const;
 type ThumbMotionVariant = (typeof THUMB_MOTION_VARIANTS)[number];
+
+const THUMB_OBJECT_POS_DELTA = 10; // crop 없이도 '움직임' 느낌
 
 type NewsItem = {
   id: string;
@@ -84,9 +81,16 @@ export function NewsFeed({ items: initialItems }: NewsFeedProps) {
   const [isTransitioning, setIsTransitioning] = useState(false);
   const [isMobileDevice, setIsMobileDevice] = useState(false);
   const [isPageActive, setIsPageActive] = useState(true);
+  const [, bumpThumbMetaVersion] = useState(0);
   const feedRef = useRef<HTMLElement | null>(null);
   const itemRefs = useRef<Array<HTMLElement | null>>([]);
-  const thumbImgRefs = useRef<Array<HTMLImageElement | null>>([]);
+  const updateViewportHeightRef = useRef<(() => void) | null>(null);
+  const detachViewportHeightListenersRef = useRef<(() => void) | null>(null);
+  const appliedViewportHeightRef = useRef(0);
+  const appliedViewportBottomInsetRef = useRef(0);
+  const viewportStabilizeTimeoutRef = useRef<number | null>(null);
+  const isGestureActiveRef = useRef(false);
+  const isTransitioningRef = useRef(false);
   const touchStartYRef = useRef<number | null>(null);
   const slideElapsedRef = useRef<number>(0);
   const lastTickRef = useRef<number | null>(null);
@@ -94,10 +98,14 @@ export function NewsFeed({ items: initialItems }: NewsFeedProps) {
   const scrollRafRef = useRef<number | null>(null);
   const transitionTimeoutRef = useRef<number | null>(null);
   const gestureTimeoutRef = useRef<number | null>(null);
+  const scrollEndTimeoutRef = useRef<number | null>(null);
   const activeIndexRef = useRef(0);
   const activeLoopIndexRef = useRef(0);
   const navigationLockedRef = useRef(false);
   const suppressScrollGestureRef = useRef(false);
+  const transitionTokenRef = useRef(0);
+  const frozenThumbObjectPositionRef = useRef(new Map<number, string>());
+  const portraitThumbRef = useRef(new Map<string, boolean>());
 
   /**
    * - dev: Vite 프록시 → 로컬 Express
@@ -119,6 +127,104 @@ export function NewsFeed({ items: initialItems }: NewsFeedProps) {
   const hasLoop = items.length > 1;
   const loopCount = hasLoop ? items.length + 2 : items.length;
   const startLoopIndex = hasLoop ? 1 : 0;
+
+  useLayoutEffect(() => {
+    if (detachViewportHeightListenersRef.current) {
+      return;
+    }
+
+    const feed = feedRef.current;
+    if (!feed || typeof window === "undefined") {
+      return;
+    }
+
+    const updateHeight = () => {
+      const visualViewport = window.visualViewport;
+      const height = Math.round(visualViewport?.height ?? window.innerHeight);
+      const bottomInset = visualViewport
+        ? Math.max(
+            0,
+            Math.round(window.innerHeight - (visualViewport.height + visualViewport.offsetTop)),
+          )
+        : 0;
+
+      const isBusy =
+        navigationLockedRef.current ||
+        isGestureActiveRef.current ||
+        isTransitioningRef.current;
+
+      const prevHeight = appliedViewportHeightRef.current;
+      void appliedViewportBottomInsetRef.current;
+
+      // 전환/제스처 중에는 뷰포트 높이 변화(주소창/툴바)로 slide height가 바뀌면
+      // scrollTop이 재정렬되면서 “삐그덕” 체감이 생긴다.
+      // 그래서 busy 동안에는 값을 고정(freeze)하고, idle이 된 뒤 살짝 지연 후 갱신한다.
+      if (isBusy && prevHeight > 0) {
+        return;
+      }
+
+      if (viewportStabilizeTimeoutRef.current !== null) {
+        window.clearTimeout(viewportStabilizeTimeoutRef.current);
+        viewportStabilizeTimeoutRef.current = null;
+      }
+
+      const apply = () => {
+        if (
+          navigationLockedRef.current ||
+          isGestureActiveRef.current ||
+          isTransitioningRef.current
+        ) {
+          return;
+        }
+
+        if (height !== appliedViewportHeightRef.current) {
+          feed.style.setProperty("--feed-height", `${height}px`);
+          appliedViewportHeightRef.current = height;
+        }
+        if (bottomInset !== appliedViewportBottomInsetRef.current) {
+          feed.style.setProperty("--vv-bottom-inset", `${bottomInset}px`);
+          appliedViewportBottomInsetRef.current = bottomInset;
+        }
+      };
+
+      // 증가(주소창 숨김 등)로 인한 여유는 바로 반영, 감소는 짧게 지연해 스냅 끝 프레임 흔들림 방지
+      const isShrink = prevHeight > 0 && height < prevHeight;
+      if (!isShrink) {
+        apply();
+        return;
+      }
+
+      viewportStabilizeTimeoutRef.current = window.setTimeout(() => {
+        viewportStabilizeTimeoutRef.current = null;
+        apply();
+      }, 220);
+    };
+
+    updateViewportHeightRef.current = updateHeight;
+    updateHeight();
+
+    window.addEventListener("resize", updateHeight);
+    window.addEventListener("orientationchange", updateHeight);
+    window.visualViewport?.addEventListener("resize", updateHeight);
+
+    detachViewportHeightListenersRef.current = () => {
+      window.removeEventListener("resize", updateHeight);
+      window.removeEventListener("orientationchange", updateHeight);
+      window.visualViewport?.removeEventListener("resize", updateHeight);
+      if (viewportStabilizeTimeoutRef.current !== null) {
+        window.clearTimeout(viewportStabilizeTimeoutRef.current);
+        viewportStabilizeTimeoutRef.current = null;
+      }
+      updateViewportHeightRef.current = null;
+      detachViewportHeightListenersRef.current = null;
+    };
+  }, [items.length, loading]);
+
+  useEffect(() => {
+    return () => {
+      detachViewportHeightListenersRef.current?.();
+    };
+  }, []);
 
   useEffect(() => {
     setIsMobileDevice(window.matchMedia("(max-width: 768px)").matches);
@@ -230,23 +336,111 @@ export function NewsFeed({ items: initialItems }: NewsFeedProps) {
     };
   }, [initialItems, newsApiUrl]);
 
-  const scrollItemIntoView = useCallback(
-    (item: HTMLElement | null | undefined, behavior: ScrollBehavior) => {
-      if (!item) {
+  const getLoopTop = useCallback(
+    (loopIndex: number) => {
+      const feed = feedRef.current;
+      if (!feed) {
+        return 0;
+      }
+
+      const slideHeight =
+        itemRefs.current[startLoopIndex]?.getBoundingClientRect().height ||
+        feed.clientHeight ||
+        1;
+
+      return itemRefs.current[loopIndex]?.offsetTop ?? loopIndex * slideHeight;
+    },
+    [startLoopIndex],
+  );
+
+  const scrollToLoopIndex = useCallback(
+    (loopIndex: number, behavior: ScrollBehavior) => {
+      const feed = feedRef.current;
+      if (!feed) {
         return;
       }
 
       suppressScrollGestureRef.current = true;
-      item.scrollIntoView({
-        behavior,
-        block: "start",
-      });
+      feed.scrollTo({ top: getLoopTop(loopIndex), behavior });
 
       window.requestAnimationFrame(() => {
         suppressScrollGestureRef.current = false;
       });
     },
-    [],
+    [getLoopTop],
+  );
+
+  const hardSetFeedScrollTop = useCallback((top: number) => {
+    const feed = feedRef.current;
+    if (!feed) {
+      return;
+    }
+
+    const previousSnapType = feed.style.scrollSnapType;
+    const previousBehavior = feed.style.scrollBehavior;
+
+    suppressScrollGestureRef.current = true;
+    feed.style.scrollSnapType = "none";
+    feed.style.scrollBehavior = "auto";
+    feed.scrollTop = top;
+
+    window.requestAnimationFrame(() => {
+      // 일부 브라우저/스냅 조합에서 1프레임 뒤 보정이 들어가 덜컹거릴 수 있어 한 번 더 고정
+      feed.scrollTop = top;
+      feed.style.scrollSnapType = previousSnapType;
+      feed.style.scrollBehavior = previousBehavior;
+
+      window.requestAnimationFrame(() => {
+        suppressScrollGestureRef.current = false;
+      });
+    });
+  }, []);
+
+  const freezeThumbObjectPosition = useCallback(() => {
+    const loopIndex = activeLoopIndexRef.current;
+    const activeItem = items[activeIndexRef.current];
+    if (!activeItem) {
+      return;
+    }
+
+    const realIndex = activeIndexRef.current;
+    const clamped = Math.max(0, Math.min(1, progress));
+    const variant = getThumbMotionVariant(activeItem, realIndex);
+    const posX =
+      variant === "panLeft"
+        ? 50 + THUMB_OBJECT_POS_DELTA - THUMB_OBJECT_POS_DELTA * 2 * clamped
+        : 50 - THUMB_OBJECT_POS_DELTA + THUMB_OBJECT_POS_DELTA * 2 * clamped;
+
+    frozenThumbObjectPositionRef.current.set(loopIndex, `${posX.toFixed(2)}% 50%`);
+  }, [items, progress]);
+
+  const waitUntilSnappedTo = useCallback(
+    (loopIndex: number, token: number, timeoutMs: number, onDone: () => void) => {
+      const startedAt = performance.now();
+
+      const check = () => {
+        if (transitionTokenRef.current !== token) {
+          return;
+        }
+
+        const feed = feedRef.current;
+        if (!feed) {
+          return;
+        }
+
+        const expectedTop = getLoopTop(loopIndex);
+        const isSnapped = Math.abs(feed.scrollTop - expectedTop) < 8;
+
+        if (isSnapped || performance.now() - startedAt > timeoutMs) {
+          onDone();
+          return;
+        }
+
+        window.requestAnimationFrame(check);
+      };
+      window.requestAnimationFrame(check);
+    },
+    [getLoopTop],
   );
 
   const goToIndex = useCallback(
@@ -255,6 +449,10 @@ export function NewsFeed({ items: initialItems }: NewsFeedProps) {
         return;
       }
 
+      // 슬라이드가 위/아래로 움직이는 동안에는 가로 팬을 “현재 위치에서” 멈춰두기
+      freezeThumbObjectPosition();
+
+      const token = (transitionTokenRef.current += 1);
       const total = items.length;
       const currentReal = activeIndexRef.current;
       const currentLoop = activeLoopIndexRef.current;
@@ -267,16 +465,16 @@ export function NewsFeed({ items: initialItems }: NewsFeedProps) {
       if (hasLoop) {
         if (index < 0) {
           // 1페이지에서 이전으로: "20(클론)"으로 1칸 이동 후 → 진짜 20으로 순간 이동
-          targetLoopIndex = 0;
+          targetLoopIndex = 0; // top clone (last)
           nextRealIndex = total - 1;
           needsResetAfterScroll = true;
-          resetLoopIndex = total; // last real slide in loop
+          resetLoopIndex = total; // last real slide
         } else if (index >= total) {
           // 20페이지에서 다음으로: "1(클론)"으로 1칸 이동 후 → 진짜 1로 순간 이동
-          targetLoopIndex = total + 1;
+          targetLoopIndex = total + 1; // bottom clone (first)
           nextRealIndex = 0;
           needsResetAfterScroll = true;
-          resetLoopIndex = 1; // first real slide in loop
+          resetLoopIndex = 1; // first real slide
         }
       } else {
         // loop 미사용(아이템 1개): 그냥 그 자리에 둠
@@ -290,40 +488,54 @@ export function NewsFeed({ items: initialItems }: NewsFeedProps) {
 
       navigationLockedRef.current = true;
       setIsTransitioning(true);
+      isTransitioningRef.current = true;
       setActiveIndex(nextRealIndex);
       setActiveLoopIndex(targetLoopIndex);
       activeIndexRef.current = nextRealIndex;
       activeLoopIndexRef.current = targetLoopIndex;
-      scrollItemIntoView(itemRefs.current[targetLoopIndex], "smooth");
+      scrollToLoopIndex(targetLoopIndex, "smooth");
 
       if (transitionTimeoutRef.current !== null) {
         window.clearTimeout(transitionTimeoutRef.current);
+        transitionTimeoutRef.current = null;
       }
-      transitionTimeoutRef.current = window.setTimeout(() => {
-        if (needsResetAfterScroll && feedRef.current) {
-          const feed = feedRef.current;
-          const resetTop =
-            itemRefs.current[resetLoopIndex]?.offsetTop ??
-            resetLoopIndex *
-              (itemRefs.current[startLoopIndex]?.getBoundingClientRect().height ||
-                feed.clientHeight ||
-                1);
 
-          suppressScrollGestureRef.current = true;
-          feed.scrollTop = resetTop;
+      waitUntilSnappedTo(targetLoopIndex, token, 900, () => {
+        if (transitionTokenRef.current !== token) {
+          return;
+        }
+
+        if (needsResetAfterScroll) {
+          const resetTop = getLoopTop(resetLoopIndex);
+          hardSetFeedScrollTop(resetTop);
           setActiveLoopIndex(resetLoopIndex);
           activeLoopIndexRef.current = resetLoopIndex;
-          window.requestAnimationFrame(() => {
-            suppressScrollGestureRef.current = false;
-          });
+
+          // 클론 → 진짜 슬라이드로 순간이동해도 같은 thumb 위치를 유지
+          const frozen = frozenThumbObjectPositionRef.current.get(targetLoopIndex);
+          if (frozen) {
+            frozenThumbObjectPositionRef.current.set(resetLoopIndex, frozen);
+          }
         }
 
         navigationLockedRef.current = false;
         setIsTransitioning(false);
-        transitionTimeoutRef.current = null;
-      }, 300);
+        isTransitioningRef.current = false;
+        window.requestAnimationFrame(() => {
+          updateViewportHeightRef.current?.();
+        });
+      });
     },
-    [hasLoop, items.length, scrollItemIntoView, startLoopIndex],
+    [
+      hasLoop,
+      items.length,
+      scrollToLoopIndex,
+      startLoopIndex,
+      hardSetFeedScrollTop,
+      waitUntilSnappedTo,
+      freezeThumbObjectPosition,
+      getLoopTop,
+    ],
   );
 
   const getArticleHref = useCallback(
@@ -346,20 +558,24 @@ export function NewsFeed({ items: initialItems }: NewsFeedProps) {
 
   const markGestureActive = useCallback(
     (resumeDelayMs?: number) => {
+      freezeThumbObjectPosition();
       setIsGestureActive(true);
+      isGestureActiveRef.current = true;
       clearGestureTimeout();
 
       if (typeof resumeDelayMs === "number" && resumeDelayMs > 0) {
         gestureTimeoutRef.current = window.setTimeout(() => {
           setIsGestureActive(false);
+          isGestureActiveRef.current = false;
+          updateViewportHeightRef.current?.();
           gestureTimeoutRef.current = null;
         }, resumeDelayMs);
       }
     },
-    [clearGestureTimeout],
+    [clearGestureTimeout, freezeThumbObjectPosition],
   );
 
-  const updateActiveIndex = useCallback(() => {
+  const updateActiveIndex = useCallback((options?: { allowNonSnapped?: boolean }) => {
     const feedElement = feedRef.current;
 
     if (
@@ -370,6 +586,7 @@ export function NewsFeed({ items: initialItems }: NewsFeedProps) {
     }
 
     const slideHeight =
+      feedElement.clientHeight ||
       itemRefs.current[startLoopIndex]?.getBoundingClientRect().height ||
       feedElement.clientHeight ||
       1;
@@ -380,10 +597,29 @@ export function NewsFeed({ items: initialItems }: NewsFeedProps) {
       Math.min(loopCount - 1, rawIndex),
     );
 
+    const expectedTop =
+      itemRefs.current[closestLoopIndex]?.offsetTop ?? closestLoopIndex * slideHeight;
+    const isSnapped = Math.abs(feedElement.scrollTop - expectedTop) < 8;
+    const allowNonSnapped = options?.allowNonSnapped ?? false;
+
+    // 스크롤/드래그 중에는 다음 카드를 미리 active로 취급하지 않는다.
+    // (다음 카드 썸네일 애니메이션이 선행 재생/리셋되는 현상 방지)
+    if (!isSnapped && !allowNonSnapped) {
+      return;
+    }
+
+    // 스크롤 종료 후 동기화는 "클론 슬라이드"를 실수로 active로 잡기 쉬워서(특히 하단),
+    // 스냅이 붙은 경우에만 클론을 인정한다.
+    if (
+      allowNonSnapped &&
+      !isSnapped &&
+      hasLoop &&
+      (closestLoopIndex === 0 || closestLoopIndex === loopCount - 1)
+    ) {
+      return;
+    }
+
     if (hasLoop) {
-      const expectedTop =
-        itemRefs.current[closestLoopIndex]?.offsetTop ?? closestLoopIndex * slideHeight;
-      const isSnapped = Math.abs(feedElement.scrollTop - expectedTop) < 2;
       const isTopClone = closestLoopIndex === 0;
       const isBottomClone = closestLoopIndex === loopCount - 1;
 
@@ -394,16 +630,11 @@ export function NewsFeed({ items: initialItems }: NewsFeedProps) {
         const resetTop =
           itemRefs.current[resetLoopIndex]?.offsetTop ?? resetLoopIndex * slideHeight;
 
-        suppressScrollGestureRef.current = true;
-        feedElement.scrollTop = resetTop;
+        hardSetFeedScrollTop(resetTop);
         setActiveLoopIndex(resetLoopIndex);
         setActiveIndex(resetRealIndex);
         activeLoopIndexRef.current = resetLoopIndex;
         activeIndexRef.current = resetRealIndex;
-
-        window.requestAnimationFrame(() => {
-          suppressScrollGestureRef.current = false;
-        });
         return;
       }
     }
@@ -427,7 +658,7 @@ export function NewsFeed({ items: initialItems }: NewsFeedProps) {
     setActiveIndex((current) =>
       current === closestRealIndex ? current : closestRealIndex,
     );
-  }, [hasLoop, items.length, loopCount, startLoopIndex]);
+  }, [hasLoop, items.length, loopCount, startLoopIndex, hardSetFeedScrollTop]);
 
   useEffect(() => {
     scrollRafRef.current = window.requestAnimationFrame(() => {
@@ -454,9 +685,6 @@ export function NewsFeed({ items: initialItems }: NewsFeedProps) {
 
     if (itemRefs.current.length > loopCount) {
       itemRefs.current.length = loopCount;
-    }
-    if (thumbImgRefs.current.length > loopCount) {
-      thumbImgRefs.current.length = loopCount;
     }
 
     const feed = feedRef.current;
@@ -488,20 +716,8 @@ export function NewsFeed({ items: initialItems }: NewsFeedProps) {
     });
   }, [items, loopCount, startLoopIndex, updateActiveIndex]);
 
-  useLayoutEffect(() => {
-    if (loading || items.length === 0) {
-      return;
-    }
-
-    const img = thumbImgRefs.current[activeLoopIndex];
-    if (!img) {
-      return;
-    }
-
-    img.style.animation = "none";
-    void img.offsetWidth;
-    img.style.animation = "";
-  }, [activeLoopIndex, items, loading]);
+  // 팬 애니메이션은 "활성 슬라이드일 때만" 클래스가 붙도록 해서
+  // 매번 0프레임부터 시작하게 만든다(중간 위치 재개 방지).
 
   useEffect(() => {
     activeIndexRef.current = activeIndex;
@@ -518,11 +734,27 @@ export function NewsFeed({ items: initialItems }: NewsFeedProps) {
   }, [activeIndex]);
 
   useEffect(() => {
+    if (!isGestureActive && !isTransitioning) {
+      // idle 상태로 돌아오면 freeze 캐시는 현재 활성 슬라이드만 남기고 정리
+      const keep = activeLoopIndexRef.current;
+      const current = frozenThumbObjectPositionRef.current.get(keep);
+      frozenThumbObjectPositionRef.current.clear();
+      if (current) {
+        frozenThumbObjectPositionRef.current.set(keep, current);
+      }
+    }
+  }, [isGestureActive, isTransitioning]);
+
+  useEffect(() => {
     return () => {
       clearGestureTimeout();
 
       if (transitionTimeoutRef.current !== null) {
         window.clearTimeout(transitionTimeoutRef.current);
+      }
+
+      if (scrollEndTimeoutRef.current !== null) {
+        window.clearTimeout(scrollEndTimeoutRef.current);
       }
     };
   }, [clearGestureTimeout]);
@@ -537,6 +769,14 @@ export function NewsFeed({ items: initialItems }: NewsFeedProps) {
 
     const shouldPauseSlideProgress =
       isGestureActive || isTransitioning || !isPageActive;
+
+    // progress가 멈춘 상태면 RAF도 멈추고(렌더/CPU 절약),
+    // progress가 움직이는 동안에만 썸네일 애니메이션을 함께 재생한다.
+    if (shouldPauseSlideProgress) {
+      lastTickRef.current = null;
+      return;
+    }
+
     let cancelled = false;
     const tick = (now: number) => {
       if (cancelled) {
@@ -545,7 +785,7 @@ export function NewsFeed({ items: initialItems }: NewsFeedProps) {
 
       if (lastTickRef.current === null) {
         lastTickRef.current = now;
-      } else if (!shouldPauseSlideProgress) {
+      } else {
         slideElapsedRef.current += now - lastTickRef.current;
       }
 
@@ -585,6 +825,14 @@ export function NewsFeed({ items: initialItems }: NewsFeedProps) {
   const handleScroll = () => {
     if (!suppressScrollGestureRef.current) {
       markGestureActive(SWIPE_ANIMATION_RESUME_DELAY_MS);
+
+      if (scrollEndTimeoutRef.current !== null) {
+        window.clearTimeout(scrollEndTimeoutRef.current);
+      }
+      scrollEndTimeoutRef.current = window.setTimeout(() => {
+        scrollEndTimeoutRef.current = null;
+        updateActiveIndex({ allowNonSnapped: true });
+      }, SWIPE_ANIMATION_RESUME_DELAY_MS + 40);
     }
 
     if (scrollRafRef.current !== null) {
@@ -668,6 +916,70 @@ export function NewsFeed({ items: initialItems }: NewsFeedProps) {
   const showRankCount =
     Boolean(activeSlideItem) && currentNewsPosition > 0;
 
+  const isPortraitThumb = (item: NewsItem) => portraitThumbRef.current.get(item.id) === true;
+
+  const getThumbObjectPosition = (
+    item: NewsItem,
+    realIndex: number,
+    isActiveSlide: boolean,
+    loopIndex: number,
+  ) => {
+    const getStartPosition = () => {
+      if (isPortraitThumb(item)) {
+        return "50.00% 0.00%";
+      }
+
+      const variant = getThumbMotionVariant(item, realIndex);
+      const posX = variant === "panLeft" ? 50 + THUMB_OBJECT_POS_DELTA : 50 - THUMB_OBJECT_POS_DELTA;
+      return `${posX.toFixed(2)}% 50%`;
+    };
+
+    if (!isActiveSlide) {
+      const frozen = frozenThumbObjectPositionRef.current.get(loopIndex);
+      if (frozen) {
+        return frozen;
+      }
+
+      // 캐시가 비어있을 때는 항상 "애니메이션 시작 위치"를 기본으로 둬서
+      // (특히 1<->20 래핑에서) 스와이프 중 보이는 위치와 시작 위치가 어긋나지 않게 한다.
+      const start = getStartPosition();
+      frozenThumbObjectPositionRef.current.set(loopIndex, start);
+      return start;
+    }
+
+    const clamped = Math.max(0, Math.min(1, progress));
+
+    if (isPortraitThumb(item)) {
+      const posY = 100 * clamped;
+      const next = `50.00% ${posY.toFixed(2)}%`;
+      frozenThumbObjectPositionRef.current.set(loopIndex, next);
+      return next;
+    }
+
+    const variant = getThumbMotionVariant(item, realIndex);
+    const posX =
+      variant === "panLeft"
+        ? 50 + THUMB_OBJECT_POS_DELTA - THUMB_OBJECT_POS_DELTA * 2 * clamped
+        : 50 - THUMB_OBJECT_POS_DELTA + THUMB_OBJECT_POS_DELTA * 2 * clamped;
+
+    // progress가 멈춘 상태(페이지 비활성/제스처/전환)에서도 같은 object-position을 유지하면 “정지”처럼 보인다.
+    const next = `${posX.toFixed(2)}% 50%`;
+    frozenThumbObjectPositionRef.current.set(loopIndex, next);
+    return next;
+  };
+
+  const shouldEagerLoadImage = (realIndex: number) => {
+    if (items.length <= 1) {
+      return true;
+    }
+
+    const total = items.length;
+    const prev = (activeIndex - 1 + total) % total;
+    const next = (activeIndex + 1) % total;
+
+    return realIndex === activeIndex || realIndex === prev || realIndex === next;
+  };
+
   const slides = (() => {
     if (!hasLoop) {
       return items.map((item, loopIndex) => ({
@@ -726,30 +1038,59 @@ export function NewsFeed({ items: initialItems }: NewsFeedProps) {
         ) : null}
       </div>
 
-      {slides.map(({ key, item, realIndex, loopIndex }) => (
-        <section
-          key={key}
-          ref={(element) => {
-            itemRefs.current[loopIndex] = element;
-          }}
-          className={styles.snapItem}
-        >
-          <article className={styles.card}>
-            <div className={styles.thumbWrap}>
-              <img
-                ref={(element) => {
-                  thumbImgRefs.current[loopIndex] = element;
-                }}
-                className={`${styles.thumb} ${styles[getThumbMotionVariant(item, realIndex)]}`}
-                style={{
-                  animationPlayState: isPageActive ? "running" : "paused",
-                }}
-                src={item.imageUrl}
-                alt={item.title}
-                loading={realIndex === 0 ? "eager" : "lazy"}
-                decoding="async"
-              />
-            </div>
+      <div className={styles.bottomOverlay} aria-hidden="true">
+        <div className={styles.progressTrack}>
+          <div
+            className={styles.progressBar}
+            style={{
+              transform: `scaleX(${progress})`,
+            }}
+          />
+        </div>
+      </div>
+
+      {slides.map(({ key, item, realIndex, loopIndex }) => {
+        const isActiveSlide = loopIndex === activeLoopIndex;
+        return (
+          <section
+            key={key}
+            ref={(element) => {
+              itemRefs.current[loopIndex] = element;
+            }}
+            className={styles.snapItem}
+          >
+            <article className={styles.card}>
+              <div className={styles.thumbWrap}>
+                <img
+                  className={styles.thumb}
+                  style={{
+                    objectPosition: getThumbObjectPosition(item, realIndex, isActiveSlide, loopIndex),
+                  }}
+                  src={item.imageUrl}
+                  alt={item.title}
+                  loading={shouldEagerLoadImage(realIndex) ? "eager" : "lazy"}
+                  decoding="async"
+                  onLoad={(event) => {
+                    const img = event.currentTarget;
+                    const naturalW = img.naturalWidth || 0;
+                    const naturalH = img.naturalHeight || 0;
+                    if (naturalW <= 0 || naturalH <= 0) {
+                      return;
+                    }
+
+                    // 세로로 긴 이미지 감지(너무 낮으면 대부분 portrait로 잡혀서 threshold를 둔다)
+                    const isPortrait = naturalH / naturalW >= 1.35;
+                    const previous = portraitThumbRef.current.get(item.id);
+                    if (previous === isPortrait) {
+                      return;
+                    }
+
+                    portraitThumbRef.current.set(item.id, isPortrait);
+                    frozenThumbObjectPositionRef.current.clear();
+                    bumpThumbMetaVersion((version) => version + 1);
+                  }}
+                />
+              </div>
 
             <div className={styles.overlay}>
 
@@ -811,19 +1152,12 @@ export function NewsFeed({ items: initialItems }: NewsFeedProps) {
                 >
                   기사 보러 가기
                 </a>
-                <div className={styles.progressTrack}>
-                  <div
-                    className={styles.progressBar}
-                    style={{
-                      transform: `scaleX(${realIndex === activeIndex ? progress : 0})`,
-                    }}
-                  />
-                </div>
               </div>
             </div>
-          </article>
-        </section>
-      ))}
+            </article>
+          </section>
+        );
+      })}
     </main>
   );
 }
