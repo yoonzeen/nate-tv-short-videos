@@ -221,7 +221,7 @@ export function NewsFeed({ items: initialItems }: NewsFeedProps) {
 
   /**
    * - dev: Vite 프록시 → 로컬 Express
-   * - shortform 정적 배포: api.news.nate.com 프록시인 /service/api/ranks/emoticons 사용
+   * - shortform 배포: api.news.nate.com 프록시인 /service/api/news 사용
    * - 그 외 prod: 같은 origin의 앱 API(/service/api/news 또는 /api/news) 사용
    * - 정적 호스트만 쓸 때: `VITE_NEWS_API_URL`(절대 URL)로 외부 API 지정 가능
    */
@@ -232,14 +232,13 @@ export function NewsFeed({ items: initialItems }: NewsFeedProps) {
 
     const external = import.meta.env.VITE_NEWS_API_URL?.trim();
     const isShortnewsDeploy = import.meta.env.BASE_URL.startsWith("/shortnews");
-    const shortformNateRankApi = "/service/api/ranks/emoticons?pageSize=20";
     const serviceNewsApi = "/service/api/news";
     const baseApi = import.meta.env.BASE_URL.endsWith("/")
       ? `${import.meta.env.BASE_URL}api/news`
       : `${import.meta.env.BASE_URL}/api/news`;
 
     const candidates = isShortnewsDeploy
-      ? [shortformNateRankApi, baseApi, "/api/news"]
+      ? [serviceNewsApi]
       : [serviceNewsApi, baseApi, "/api/news"];
     if (external) {
       candidates.unshift(external);
