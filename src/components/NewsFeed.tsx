@@ -232,13 +232,16 @@ export function NewsFeed({ items: initialItems }: NewsFeedProps) {
 
     const external = import.meta.env.VITE_NEWS_API_URL?.trim();
     const isShortnewsDeploy = import.meta.env.BASE_URL.startsWith("/shortnews");
+    const baseServiceApi = import.meta.env.BASE_URL.endsWith("/")
+      ? `${import.meta.env.BASE_URL}service/api/news`
+      : `${import.meta.env.BASE_URL}/service/api/news`;
     const serviceNewsApi = "/service/api/news";
     const baseApi = import.meta.env.BASE_URL.endsWith("/")
       ? `${import.meta.env.BASE_URL}api/news`
       : `${import.meta.env.BASE_URL}/api/news`;
 
     const candidates = isShortnewsDeploy
-      ? [serviceNewsApi]
+      ? [baseServiceApi]
       : [serviceNewsApi, baseApi, "/api/news"];
     if (external) {
       candidates.unshift(external);
