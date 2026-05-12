@@ -330,14 +330,14 @@ export function NewsFeed({ items: initialItems }: NewsFeedProps) {
             });
 
             if (!response.ok) {
-              throw new Error(`news ${response.status}`);
+              throw new Error(`news ${response.status} @ ${url}`);
             }
 
             const contentType = response.headers.get("content-type") ?? "";
             if (!contentType.includes("application/json")) {
               const sample = (await response.text()).slice(0, 80);
               throw new Error(
-                `news invalid content-type (${contentType || "unknown"}): ${JSON.stringify(sample)}`,
+                `news invalid content-type (${contentType || "unknown"}) @ ${url}: ${JSON.stringify(sample)}`,
               );
             }
 
@@ -356,10 +356,16 @@ export function NewsFeed({ items: initialItems }: NewsFeedProps) {
         }
 
         console.error("Failed to load news:", error);
+        const message =
+          error instanceof Error ? error.message : "뉴스 API 호출에 실패했습니다.";
+
+        const externalConfigured = Boolean(import.meta.env.VITE_NEWS_API_URL?.trim());
+        const isShortnewsStaticBase = import.meta.env.BASE_URL.startsWith("/shortnews");
+
         setApiError(
-          error instanceof Error
-            ? error.message
-            : "뉴스 API 호출에 실패했습니다.",
+          !externalConfigured && isShortnewsStaticBase
+            ? `${message}\n\n(정적 배포에서는 /api/news가 없어서 HTML이 내려올 수 있습니다. 빌드 시 VITE_NEWS_API_URL에 외부 뉴스 API 전체 URL을 지정해 주세요.)`
+            : message,
         );
       } finally {
         /* abort(cleanup) 시에는 loading을 false로 두면 “빈 목록 + 로딩 끝”으로 남아 재요청이 막힘 */

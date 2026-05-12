@@ -87,6 +87,24 @@ function getEmoticonJsonRankBaseCandidates(): string[] {
   return [NATE_EMOTICON_RANK_ORIGIN];
 }
 
+const EMOTICON_JSON_COOLDOWN_MS = 10 * 60 * 1000;
+let emoticonJsonDisabledUntil = 0;
+let emoticonJsonDisableWarnedAt = 0;
+const SHOULD_LOG_JSON_DNS_FAILURE =
+  process.env.NATE_API_DEBUG === "1" ||
+  process.env.NATE_API_DEBUG === "true";
+
+function isDnsNotFoundError(error: unknown): boolean {
+  if (!error || typeof error !== "object") {
+    return false;
+  }
+
+  const anyError = error as { cause?: unknown; code?: unknown };
+  const cause = anyError.cause as { code?: unknown } | undefined;
+  const code = anyError.code ?? cause?.code;
+  return code === "ENOTFOUND";
+}
+
 function decodeHtmlEntities(value: string) {
   return value
     .replace(/&quot;/g, '"')
@@ -328,26 +346,51 @@ async function fetchEmoticonRankItems(pageSize = EMOTICON_PAGE_SIZE) {
 
   const bases = getEmoticonJsonRankBaseCandidates();
   let lastJsonError: unknown;
+  const now = Date.now();
 
-  for (const base of bases) {
-    try {
-      const url = `${base.replace(/\/$/, "")}/ranks/emoticons?${params.toString()}`;
-      const response = await fetchNateJson<NateEmoticonRankResponse>(url);
-      items = response.data ?? [];
-      if (items.length > 0) {
-        break;
+  if (
+    process.env.NATE_EMOTICON_JSON === "0" ||
+    process.env.NATE_EMOTICON_JSON === "false"
+  ) {
+    items = await fetchEmoticonRankItemsFromHtml(pageSize);
+  } else if (now < emoticonJsonDisabledUntil) {
+    items = await fetchEmoticonRankItemsFromHtml(pageSize);
+  } else {
+    for (const base of bases) {
+      try {
+        const url = `${base.replace(/\/$/, "")}/ranks/emoticons?${params.toString()}`;
+        const response = await fetchNateJson<NateEmoticonRankResponse>(url);
+        items = response.data ?? [];
+        if (items.length > 0) {
+          break;
+        }
+      } catch (error) {
+        lastJsonError = error;
+        if (isDnsNotFoundError(error)) {
+          emoticonJsonDisabledUntil = Date.now() + EMOTICON_JSON_COOLDOWN_MS;
+          if (
+            SHOULD_LOG_JSON_DNS_FAILURE &&
+            Date.now() - emoticonJsonDisableWarnedAt > EMOTICON_JSON_COOLDOWN_MS
+          ) {
+            emoticonJsonDisableWarnedAt = Date.now();
+            console.warn(
+              "Nate emoticon JSON API DNS failed (ENOTFOUND). " +
+                `Disabling JSON attempts for ${Math.round(EMOTICON_JSON_COOLDOWN_MS / 60000)}m and using HTML ranking page.`,
+            );
+          }
+          break;
+        }
       }
-    } catch (error) {
-      lastJsonError = error;
     }
   }
 
   if (items.length === 0) {
-    console.warn(
-      "Failed to fetch Nate emoticon JSON API (all bases), falling back to HTML ranking page.",
-      lastJsonError,
-    );
-
+    if (lastJsonError && !isDnsNotFoundError(lastJsonError)) {
+      console.warn(
+        "Failed to fetch Nate emoticon JSON API (all bases), falling back to HTML ranking page.",
+        lastJsonError,
+      );
+    }
     items = await fetchEmoticonRankItemsFromHtml(pageSize);
   }
 
