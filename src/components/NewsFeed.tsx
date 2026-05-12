@@ -98,7 +98,6 @@ export function NewsFeed({ items: initialItems }: NewsFeedProps) {
   const lastTickRef = useRef<number | null>(null);
   const rafRef = useRef<number | null>(null);
   const scrollRafRef = useRef<number | null>(null);
-  const transitionTimeoutRef = useRef<number | null>(null);
   const gestureTimeoutRef = useRef<number | null>(null);
   const scrollEndTimeoutRef = useRef<number | null>(null);
   const activeIndexRef = useRef(0);
@@ -108,7 +107,6 @@ export function NewsFeed({ items: initialItems }: NewsFeedProps) {
   const transitionTokenRef = useRef(0);
   const frozenThumbObjectPositionRef = useRef(new Map<number, string>());
   const portraitThumbRef = useRef(new Map<string, boolean>());
-  const apiLoadAttemptedRef = useRef(false);
 
   /**
    * - dev: Vite 프록시 → 로컬 Express
@@ -121,11 +119,12 @@ export function NewsFeed({ items: initialItems }: NewsFeedProps) {
     }
 
     const external = import.meta.env.VITE_NEWS_API_URL?.trim();
+    const serviceApi = "/service/api/news";
     const baseApi = import.meta.env.BASE_URL.endsWith("/")
       ? `${import.meta.env.BASE_URL}api/news`
       : `${import.meta.env.BASE_URL}/api/news`;
 
-    const candidates = [baseApi, "/api/news"];
+    const candidates = [serviceApi, baseApi, "/api/news"];
     if (external) {
       candidates.unshift(external);
     }
@@ -164,7 +163,7 @@ export function NewsFeed({ items: initialItems }: NewsFeedProps) {
         isTransitioningRef.current;
 
       const prevHeight = appliedViewportHeightRef.current;
-      void appliedViewportBottomInsetRef.current;
+      const prevInset = appliedViewportBottomInsetRef.current;
 
       // 전환/제스처 중에는 뷰포트 높이 변화(주소창/툴바)로 slide height가 바뀌면
       // scrollTop이 재정렬되면서 “삐그덕” 체감이 생긴다.
@@ -191,7 +190,7 @@ export function NewsFeed({ items: initialItems }: NewsFeedProps) {
           feed.style.setProperty("--feed-height", `${height}px`);
           appliedViewportHeightRef.current = height;
         }
-        if (bottomInset !== appliedViewportBottomInsetRef.current) {
+        if (bottomInset !== prevInset) {
           feed.style.setProperty("--vv-bottom-inset", `${bottomInset}px`);
           appliedViewportBottomInsetRef.current = bottomInset;
         }
@@ -293,7 +292,6 @@ export function NewsFeed({ items: initialItems }: NewsFeedProps) {
     slideElapsedRef.current = 0;
     lastTickRef.current = null;
     navigationLockedRef.current = false;
-    apiLoadAttemptedRef.current = false;
 
     if (scrollRafRef.current !== null) {
       window.cancelAnimationFrame(scrollRafRef.current);
@@ -309,11 +307,6 @@ export function NewsFeed({ items: initialItems }: NewsFeedProps) {
     if ((initialItems?.length ?? 0) > 0) {
       return;
     }
-
-    if (apiLoadAttemptedRef.current) {
-      return;
-    }
-    apiLoadAttemptedRef.current = true;
 
     const controller = new AbortController();
     const { signal } = controller;
@@ -541,11 +534,6 @@ export function NewsFeed({ items: initialItems }: NewsFeedProps) {
       activeIndexRef.current = nextRealIndex;
       activeLoopIndexRef.current = targetLoopIndex;
       scrollToLoopIndex(targetLoopIndex, "smooth");
-
-      if (transitionTimeoutRef.current !== null) {
-        window.clearTimeout(transitionTimeoutRef.current);
-        transitionTimeoutRef.current = null;
-      }
 
       waitUntilSnappedTo(targetLoopIndex, token, 900, () => {
         if (transitionTokenRef.current !== token) {
@@ -795,10 +783,6 @@ export function NewsFeed({ items: initialItems }: NewsFeedProps) {
   useEffect(() => {
     return () => {
       clearGestureTimeout();
-
-      if (transitionTimeoutRef.current !== null) {
-        window.clearTimeout(transitionTimeoutRef.current);
-      }
 
       if (scrollEndTimeoutRef.current !== null) {
         window.clearTimeout(scrollEndTimeoutRef.current);

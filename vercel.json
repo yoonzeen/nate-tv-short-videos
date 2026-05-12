@@ -6,6 +6,14 @@
     {
       "source": "/shortnews/api/news",
       "destination": "/api/news"
+    },
+    {
+      "source": "/service/api/news",
+      "destination": "/api/news"
+    },
+    {
+      "source": "/shortnews/service/api/news",
+      "destination": "/api/news"
     }
   ],
   "functions": {

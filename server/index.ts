@@ -21,6 +21,8 @@ const serveNewsFeed: express.RequestHandler = async (_req, res) => {
 /* Vite 정적 base(/shortnews/)와 맞추기 위해 동일 핸들러를 두 경로에 둠 */
 app.get("/api/news", serveNewsFeed);
 app.get("/shortnews/api/news", serveNewsFeed);
+app.get("/service/api/news", serveNewsFeed);
+app.get("/shortnews/service/api/news", serveNewsFeed);
 
 if (!apiOnly) {
   const outDir = path.join(__dirname, "..", "out");
