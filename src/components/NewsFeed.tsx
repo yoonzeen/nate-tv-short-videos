@@ -2,6 +2,7 @@ import {
   useCallback,
   useEffect,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
   type TouchEvent,
@@ -74,6 +75,7 @@ const commentIconSrc = `${import.meta.env.BASE_URL}images/ico-reple.png`;
 export function NewsFeed({ items: initialItems }: NewsFeedProps) {
   const [items, setItems] = useState<NewsItem[]>(() => initialItems ?? []);
   const [loading, setLoading] = useState(!(initialItems && initialItems.length > 0));
+  const [apiError, setApiError] = useState<string | null>(null);
   const [activeIndex, setActiveIndex] = useState(0);
   const [activeLoopIndex, setActiveLoopIndex] = useState(0);
   const [progress, setProgress] = useState(0);
@@ -106,13 +108,14 @@ export function NewsFeed({ items: initialItems }: NewsFeedProps) {
   const transitionTokenRef = useRef(0);
   const frozenThumbObjectPositionRef = useRef(new Map<number, string>());
   const portraitThumbRef = useRef(new Map<string, boolean>());
+  const apiLoadAttemptedRef = useRef(false);
 
   /**
    * - dev: Vite 프록시 → 로컬 Express
    * - prod: 같은 origin의 /api/news 또는 base 아래 /api/news 중 동작하는 쪽을 자동 선택
    * - 정적 호스트만 쓸 때: `VITE_NEWS_API_URL`(절대 URL)로 외부 API 지정 가능
    */
-  const newsApiCandidates = (() => {
+  const newsApiCandidates = useMemo(() => {
     if (import.meta.env.DEV) {
       return ["/api/news"];
     }
@@ -129,7 +132,7 @@ export function NewsFeed({ items: initialItems }: NewsFeedProps) {
 
     // 중복 제거
     return Array.from(new Set(candidates));
-  })();
+  }, []);
 
   const hasLoop = items.length > 1;
   const loopCount = hasLoop ? items.length + 2 : items.length;
@@ -280,6 +283,7 @@ export function NewsFeed({ items: initialItems }: NewsFeedProps) {
 
     setItems(nextItems);
     setLoading(!(initialItems && initialItems.length > 0));
+    setApiError(null);
     setActiveIndex(0);
     setActiveLoopIndex(nextHasLoop ? 1 : 0);
     setProgress(0);
@@ -289,6 +293,7 @@ export function NewsFeed({ items: initialItems }: NewsFeedProps) {
     slideElapsedRef.current = 0;
     lastTickRef.current = null;
     navigationLockedRef.current = false;
+    apiLoadAttemptedRef.current = false;
 
     if (scrollRafRef.current !== null) {
       window.cancelAnimationFrame(scrollRafRef.current);
@@ -304,6 +309,11 @@ export function NewsFeed({ items: initialItems }: NewsFeedProps) {
     if ((initialItems?.length ?? 0) > 0) {
       return;
     }
+
+    if (apiLoadAttemptedRef.current) {
+      return;
+    }
+    apiLoadAttemptedRef.current = true;
 
     const controller = new AbortController();
     const { signal } = controller;
@@ -346,6 +356,11 @@ export function NewsFeed({ items: initialItems }: NewsFeedProps) {
         }
 
         console.error("Failed to load news:", error);
+        setApiError(
+          error instanceof Error
+            ? error.message
+            : "뉴스 API 호출에 실패했습니다.",
+        );
       } finally {
         /* abort(cleanup) 시에는 loading을 false로 두면 “빈 목록 + 로딩 끝”으로 남아 재요청이 막힘 */
         if (!signal.aborted) {
@@ -930,6 +945,16 @@ export function NewsFeed({ items: initialItems }: NewsFeedProps) {
 
   if (loading) {
     return <main className={styles.empty}>뉴스를 불러오는 중...</main>;
+  }
+
+  if (apiError) {
+    return (
+      <main className={styles.empty}>
+        뉴스 API를 불러오지 못했습니다.
+        <br />
+        {apiError}
+      </main>
+    );
   }
 
   if (items.length === 0) {
