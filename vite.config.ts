@@ -17,6 +17,15 @@ function resolveBase(options: { isBuild: boolean }): string {
     process.env.GITHUB_PAGES === "true" ||
     process.env.GITLAB_PAGES === "true";
 
+  // Vercel(예: nate-test-shorts.vercel.app)은 기본적으로 루트(`/`) 배포이므로 base를 `/`로 둔다.
+  const isVercelBuild =
+    process.env.VERCEL === "1" ||
+    process.env.VERCEL === "true" ||
+    Boolean(process.env.VERCEL_URL);
+  if (isVercelBuild) {
+    return "/";
+  }
+
   // Nate shortform 배포는 기본이 /shortnews/ 하위 경로라서,
   // 별도 설정이 없으면 build 시에는 /shortnews/를 기본값으로 둔다.
   if (options.isBuild) {
