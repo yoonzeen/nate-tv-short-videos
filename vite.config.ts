@@ -63,6 +63,11 @@ export default defineConfig(({ command }) => {
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/shortnews/, ""),
       },
+      /* 로컬에서도 Jenkins/shortform 배포와 같은 Nate API 프록시 사용 */
+      "/service/api": {
+        target: "https://shortform.nate.com",
+        changeOrigin: true,
+      },
     },
   },
   };

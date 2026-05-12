@@ -11,6 +11,11 @@ import styles from "./NewsFeed.module.css";
 
 const SLIDE_DURATION_MS = 5_000;
 const SWIPE_ANIMATION_RESUME_DELAY_MS = 180;
+const TOTAL_NEWS_COUNT = 30;
+const NEWS_BATCH_SIZE = TOTAL_NEWS_COUNT;
+const NEWS_LOAD_AHEAD_COUNT = 3;
+const SHORTFORM_EMOTICON_RANK_API_PATH =
+  "/service/api/ranks/emoticons?platformType=mnews&type=section&section=tot&emoticonNo=1";
 
 const THUMB_MOTION_VARIANTS = ["panLeft", "panRight"] as const;
 type ThumbMotionVariant = (typeof THUMB_MOTION_VARIANTS)[number];
@@ -54,7 +59,6 @@ type NateEmoticonRankResponse = {
 
 const NATE_IMAGE_PREFIX = "https://thumbnews.nateimg.co.kr/mnews107x80/";
 const NATE_VIEW_IMAGE_PREFIX = "https://thumbnews.nateimg.co.kr/view610/";
-const NATE_IDOL_IMAGE_PREFIX = "https://thumbnews.nateimg.co.kr/idol140x88/";
 const ARTICLE_ID_PATTERN = /\/view\/(\d{8}n\d+)/i;
 
 function hashText(value: string) {
@@ -108,15 +112,36 @@ function normalizeNateUrl(value: string) {
   return normalizedValue;
 }
 
+function decodeUrlComponentSafely(value: string) {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
+}
+
 function normalizeImageUrl(value: string) {
   const normalizedValue = normalizeNateUrl(value);
+  const thumbPrefixes = [NATE_IMAGE_PREFIX, NATE_VIEW_IMAGE_PREFIX];
 
-  if (normalizedValue.startsWith(NATE_IMAGE_PREFIX)) {
-    return normalizedValue.replace(NATE_IMAGE_PREFIX, NATE_VIEW_IMAGE_PREFIX);
-  }
+  for (const prefix of thumbPrefixes) {
+    if (!normalizedValue.startsWith(prefix)) {
+      continue;
+    }
 
-  if (normalizedValue.startsWith(NATE_IDOL_IMAGE_PREFIX)) {
-    return normalizedValue.replace(NATE_IDOL_IMAGE_PREFIX, NATE_VIEW_IMAGE_PREFIX);
+    const decodedValue = decodeUrlComponentSafely(
+      normalizedValue.slice(prefix.length),
+    );
+
+    if (/^https?:\/\//i.test(decodedValue)) {
+      return decodedValue;
+    }
+
+    if (decodedValue.startsWith("news.nateimg.co.kr/")) {
+      return `https://${decodedValue}`;
+    }
+
+    return decodedValue;
   }
 
   return normalizedValue;
@@ -181,6 +206,58 @@ function getItemsFromResponse(value: unknown): NewsItem[] {
   return [];
 }
 
+function getShortformEmoticonRankApiUrl(pageSize: number) {
+  return `${SHORTFORM_EMOTICON_RANK_API_PATH}&pageSize=${pageSize}`;
+}
+
+async function fetchNewsItemsFromCandidates(urls: string[], signal: AbortSignal) {
+  let lastError: unknown = null;
+
+  for (const url of urls) {
+    try {
+      const response = await fetch(url, {
+        cache: "no-store",
+        signal,
+      });
+
+      if (!response.ok) {
+        throw new Error(`news ${response.status} @ ${url}`);
+      }
+
+      const contentType = response.headers.get("content-type") ?? "";
+      if (!contentType.includes("application/json")) {
+        const sample = (await response.text()).slice(0, 80);
+        throw new Error(
+          `news invalid content-type (${contentType || "unknown"}) @ ${url}: ${JSON.stringify(sample)}`,
+        );
+      }
+
+      const data = getItemsFromResponse(await response.json());
+      return data;
+    } catch (error) {
+      lastError = error;
+    }
+  }
+
+  throw lastError ?? new Error("news request failed");
+}
+
+function mergeNewsItems(currentItems: NewsItem[], nextItems: NewsItem[]) {
+  const seen = new Set(currentItems.map((item) => item.id));
+  const merged = [...currentItems];
+
+  for (const item of nextItems) {
+    if (seen.has(item.id)) {
+      continue;
+    }
+
+    seen.add(item.id);
+    merged.push(item);
+  }
+
+  return merged.slice(0, TOTAL_NEWS_COUNT);
+}
+
 const commentIconSrc = `${import.meta.env.BASE_URL}images/ico-reple.png`;
 
 export function NewsFeed({ items: initialItems }: NewsFeedProps) {
@@ -211,6 +288,9 @@ export function NewsFeed({ items: initialItems }: NewsFeedProps) {
   const scrollRafRef = useRef<number | null>(null);
   const gestureTimeoutRef = useRef<number | null>(null);
   const scrollEndTimeoutRef = useRef<number | null>(null);
+  const loadedBatchCountRef = useRef(0);
+  const isLoadingNextBatchRef = useRef(false);
+  const nextBatchAbortRef = useRef<AbortController | null>(null);
   const activeIndexRef = useRef(0);
   const activeLoopIndexRef = useRef(0);
   const navigationLockedRef = useRef(false);
@@ -221,26 +301,23 @@ export function NewsFeed({ items: initialItems }: NewsFeedProps) {
 
   /**
    * - dev: Vite 프록시 → 로컬 Express
-   * - shortform 배포: shortform 프록시로 열린 Nate mainNews API 사용
+   * - shortform 배포: shortform 프록시로 열린 Nate emoticon ranking API 사용
    * - 그 외 prod: 같은 origin의 앱 API(/service/api/news 또는 /api/news) 사용
    * - 정적 호스트만 쓸 때: `VITE_NEWS_API_URL`(절대 URL)로 외부 API 지정 가능
    */
+  const isShortnewsDeploy = import.meta.env.BASE_URL.startsWith("/shortnews");
+  const usePagedEmoticonRankApi = import.meta.env.DEV || isShortnewsDeploy;
   const newsApiCandidates = useMemo(() => {
-    if (import.meta.env.DEV) {
-      return ["/api/news"];
-    }
-
     const external = import.meta.env.VITE_NEWS_API_URL?.trim();
-    const isShortnewsDeploy = import.meta.env.BASE_URL.startsWith("/shortnews");
-    const shortformMainNewsApi =
-      "/service/api/natemains/mainNews/sisa?platformType=mnews";
+    const shortformEmoticonRankApi =
+      getShortformEmoticonRankApiUrl(NEWS_BATCH_SIZE);
     const serviceNewsApi = "/service/api/news";
     const baseApi = import.meta.env.BASE_URL.endsWith("/")
       ? `${import.meta.env.BASE_URL}api/news`
       : `${import.meta.env.BASE_URL}/api/news`;
 
-    const candidates = isShortnewsDeploy
-      ? [shortformMainNewsApi]
+    const candidates = usePagedEmoticonRankApi
+      ? [shortformEmoticonRankApi]
       : [serviceNewsApi, baseApi, "/api/news"];
     if (external) {
       candidates.unshift(external);
@@ -248,7 +325,7 @@ export function NewsFeed({ items: initialItems }: NewsFeedProps) {
 
     // 중복 제거
     return Array.from(new Set(candidates));
-  }, []);
+  }, [usePagedEmoticonRankApi]);
 
   const hasLoop = items.length > 1;
   const loopCount = hasLoop ? items.length + 2 : items.length;
@@ -409,6 +486,10 @@ export function NewsFeed({ items: initialItems }: NewsFeedProps) {
     slideElapsedRef.current = 0;
     lastTickRef.current = null;
     navigationLockedRef.current = false;
+    loadedBatchCountRef.current = nextItems.length > 0 ? 1 : 0;
+    isLoadingNextBatchRef.current = false;
+    nextBatchAbortRef.current?.abort();
+    nextBatchAbortRef.current = null;
 
     if (scrollRafRef.current !== null) {
       window.cancelAnimationFrame(scrollRafRef.current);
@@ -430,36 +511,12 @@ export function NewsFeed({ items: initialItems }: NewsFeedProps) {
 
     const loadData = async () => {
       try {
-        let lastError: unknown = null;
-
-        for (const url of newsApiCandidates) {
-          try {
-            const response = await fetch(url, {
-              cache: "no-store",
-              signal,
-            });
-
-            if (!response.ok) {
-              throw new Error(`news ${response.status} @ ${url}`);
-            }
-
-            const contentType = response.headers.get("content-type") ?? "";
-            if (!contentType.includes("application/json")) {
-              const sample = (await response.text()).slice(0, 80);
-              throw new Error(
-                `news invalid content-type (${contentType || "unknown"}) @ ${url}: ${JSON.stringify(sample)}`,
-              );
-            }
-
-            const data = getItemsFromResponse(await response.json());
-            setItems(data);
-            return;
-          } catch (error) {
-            lastError = error;
-          }
-        }
-
-        throw lastError ?? new Error("news request failed");
+        const data = await fetchNewsItemsFromCandidates(newsApiCandidates, signal);
+        setItems(data.slice(0, TOTAL_NEWS_COUNT));
+        loadedBatchCountRef.current = Math.max(
+          1,
+          Math.ceil(Math.min(data.length, TOTAL_NEWS_COUNT) / NEWS_BATCH_SIZE),
+        );
       } catch (error) {
         if (error instanceof Error && error.name === "AbortError") {
           return;
@@ -492,6 +549,59 @@ export function NewsFeed({ items: initialItems }: NewsFeedProps) {
       controller.abort();
     };
   }, [initialItems, newsApiCandidates]);
+
+  const loadNextNewsBatch = useCallback(async () => {
+    if (
+      !usePagedEmoticonRankApi ||
+      (initialItems?.length ?? 0) > 0 ||
+      isLoadingNextBatchRef.current ||
+      loadedBatchCountRef.current * NEWS_BATCH_SIZE >= TOTAL_NEWS_COUNT
+    ) {
+      return;
+    }
+
+    const nextBatchCount = loadedBatchCountRef.current + 1;
+    const nextPageSize = Math.min(nextBatchCount * NEWS_BATCH_SIZE, TOTAL_NEWS_COUNT);
+    const controller = new AbortController();
+
+    isLoadingNextBatchRef.current = true;
+    nextBatchAbortRef.current?.abort();
+    nextBatchAbortRef.current = controller;
+
+    try {
+      const data = await fetchNewsItemsFromCandidates(
+        [getShortformEmoticonRankApiUrl(nextPageSize)],
+        controller.signal,
+      );
+
+      setItems((currentItems) =>
+        mergeNewsItems(currentItems, data.slice(0, nextPageSize)),
+      );
+      loadedBatchCountRef.current = nextBatchCount;
+    } catch (error) {
+      if (!(error instanceof Error && error.name === "AbortError")) {
+        console.error("Failed to load next news batch:", error);
+      }
+    } finally {
+      if (nextBatchAbortRef.current === controller) {
+        nextBatchAbortRef.current = null;
+      }
+      isLoadingNextBatchRef.current = false;
+    }
+  }, [initialItems, usePagedEmoticonRankApi]);
+
+  useEffect(() => {
+    if (
+      !usePagedEmoticonRankApi ||
+      items.length === 0 ||
+      items.length >= TOTAL_NEWS_COUNT ||
+      activeIndex < items.length - NEWS_LOAD_AHEAD_COUNT
+    ) {
+      return;
+    }
+
+    void loadNextNewsBatch();
+  }, [activeIndex, items.length, loadNextNewsBatch, usePagedEmoticonRankApi]);
 
   const getLoopTop = useCallback(
     (loopIndex: number) => {
@@ -606,6 +716,15 @@ export function NewsFeed({ items: initialItems }: NewsFeedProps) {
         return;
       }
 
+      if (
+        usePagedEmoticonRankApi &&
+        index >= items.length &&
+        items.length < TOTAL_NEWS_COUNT
+      ) {
+        void loadNextNewsBatch();
+        return;
+      }
+
       // 슬라이드가 위/아래로 움직이는 동안에는 가로 팬을 “현재 위치에서” 멈춰두기
       freezeThumbObjectPosition();
 
@@ -687,6 +806,8 @@ export function NewsFeed({ items: initialItems }: NewsFeedProps) {
       waitUntilSnappedTo,
       freezeThumbObjectPosition,
       getLoopTop,
+      loadNextNewsBatch,
+      usePagedEmoticonRankApi,
     ],
   );
 
@@ -904,6 +1025,8 @@ export function NewsFeed({ items: initialItems }: NewsFeedProps) {
       if (scrollEndTimeoutRef.current !== null) {
         window.clearTimeout(scrollEndTimeoutRef.current);
       }
+
+      nextBatchAbortRef.current?.abort();
     };
   }, [clearGestureTimeout]);
 
@@ -1070,7 +1193,7 @@ export function NewsFeed({ items: initialItems }: NewsFeedProps) {
 
   const activeSlideItem = items[activeIndex];
   const currentNewsPosition = activeSlideItem != null ? activeIndex + 1 : 0;
-  const totalNewsCount = items.length;
+  const totalNewsCount = TOTAL_NEWS_COUNT;
   const showRankCount =
     Boolean(activeSlideItem) && currentNewsPosition > 0;
 
