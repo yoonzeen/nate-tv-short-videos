@@ -109,20 +109,27 @@ export function NewsFeed({ items: initialItems }: NewsFeedProps) {
 
   /**
    * - dev: Vite 프록시 → 로컬 Express
-   * - prod: 기본은 같은 origin의 상대 경로(base 아래 /api/news)
-   * - GitLab Pages 등 정적 호스트만 쓸 때: 빌드 전 `VITE_NEWS_API_URL`(절대 URL)로 Vercel 등 외부 API 지정
+   * - prod: 같은 origin의 /api/news 또는 base 아래 /api/news 중 동작하는 쪽을 자동 선택
+   * - 정적 호스트만 쓸 때: `VITE_NEWS_API_URL`(절대 URL)로 외부 API 지정 가능
    */
-  const newsApiUrl = import.meta.env.DEV
-    ? "/api/news"
-    : (() => {
-        const external = import.meta.env.VITE_NEWS_API_URL?.trim();
-        if (external) {
-          return external;
-        }
-        return import.meta.env.BASE_URL.endsWith("/")
-          ? `${import.meta.env.BASE_URL}api/news`
-          : `${import.meta.env.BASE_URL}/api/news`;
-      })();
+  const newsApiCandidates = (() => {
+    if (import.meta.env.DEV) {
+      return ["/api/news"];
+    }
+
+    const external = import.meta.env.VITE_NEWS_API_URL?.trim();
+    const baseApi = import.meta.env.BASE_URL.endsWith("/")
+      ? `${import.meta.env.BASE_URL}api/news`
+      : `${import.meta.env.BASE_URL}/api/news`;
+
+    const candidates = [baseApi, "/api/news"];
+    if (external) {
+      candidates.unshift(external);
+    }
+
+    // 중복 제거
+    return Array.from(new Set(candidates));
+  })();
 
   const hasLoop = items.length > 1;
   const loopCount = hasLoop ? items.length + 2 : items.length;
@@ -303,17 +310,36 @@ export function NewsFeed({ items: initialItems }: NewsFeedProps) {
 
     const loadData = async () => {
       try {
-        const response = await fetch(newsApiUrl, {
-          cache: "no-store",
-          signal,
-        });
+        let lastError: unknown = null;
 
-        if (!response.ok) {
-          throw new Error(`news ${response.status}`);
+        for (const url of newsApiCandidates) {
+          try {
+            const response = await fetch(url, {
+              cache: "no-store",
+              signal,
+            });
+
+            if (!response.ok) {
+              throw new Error(`news ${response.status}`);
+            }
+
+            const contentType = response.headers.get("content-type") ?? "";
+            if (!contentType.includes("application/json")) {
+              const sample = (await response.text()).slice(0, 80);
+              throw new Error(
+                `news invalid content-type (${contentType || "unknown"}): ${JSON.stringify(sample)}`,
+              );
+            }
+
+            const data = getItemsFromResponse(await response.json());
+            setItems(data);
+            return;
+          } catch (error) {
+            lastError = error;
+          }
         }
 
-        const data = getItemsFromResponse(await response.json());
-        setItems(data);
+        throw lastError ?? new Error("news request failed");
       } catch (error) {
         if (error instanceof Error && error.name === "AbortError") {
           return;
@@ -334,7 +360,7 @@ export function NewsFeed({ items: initialItems }: NewsFeedProps) {
     return () => {
       controller.abort();
     };
-  }, [initialItems, newsApiUrl]);
+  }, [initialItems, newsApiCandidates]);
 
   const getLoopTop = useCallback(
     (loopIndex: number) => {
