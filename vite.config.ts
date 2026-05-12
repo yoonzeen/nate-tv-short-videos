@@ -7,7 +7,7 @@ import { defineConfig } from "vite";
  * - `APP_BASE_PATH`가 있으면 최우선 (예: `shortnews` 또는 `/shortnews`).
  * - 없으면 GitHub Pages / GitLab Pages CI에서 `/shortnews/` 사용.
  */
-function resolveBase(): string {
+function resolveBase(options: { isBuild: boolean }): string {
   const explicit = process.env.APP_BASE_PATH?.trim();
   if (explicit) {
     const withLead = explicit.startsWith("/") ? explicit : `/${explicit}`;
@@ -16,14 +16,22 @@ function resolveBase(): string {
   const staticPagesSubpath =
     process.env.GITHUB_PAGES === "true" ||
     process.env.GITLAB_PAGES === "true";
+
+  // Nate shortform 배포는 기본이 /shortnews/ 하위 경로라서,
+  // 별도 설정이 없으면 build 시에는 /shortnews/를 기본값으로 둔다.
+  if (options.isBuild) {
+    return staticPagesSubpath ? "/shortnews/" : "/shortnews/";
+  }
+
   return staticPagesSubpath ? "/shortnews/" : "/";
 }
 
-const base = resolveBase();
+export default defineConfig(({ command }) => {
+  const base = resolveBase({ isBuild: command === "build" });
 
-export default defineConfig({
-  plugins: [react()],
-  base,
+  return {
+    plugins: [react()],
+    base,
   resolve: {
     alias: {
       "@": fileURLToPath(new URL("./src", import.meta.url)),
@@ -48,4 +56,5 @@ export default defineConfig({
       },
     },
   },
+  };
 });
