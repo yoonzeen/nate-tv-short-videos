@@ -38,6 +38,25 @@ type NewsFeedResponse = {
   items?: NewsItem[];
 };
 
+type NateEmoticonRankItem = {
+  rank?: number;
+  title?: string;
+  mobileUrl?: string;
+  pcUrl?: string;
+  imageUrl?: string;
+  cpName?: string;
+  emoticonCnt?: number;
+};
+
+type NateEmoticonRankResponse = {
+  data?: NateEmoticonRankItem[];
+};
+
+const NATE_IMAGE_PREFIX = "https://thumbnews.nateimg.co.kr/mnews107x80/";
+const NATE_VIEW_IMAGE_PREFIX = "https://thumbnews.nateimg.co.kr/view610/";
+const NATE_IDOL_IMAGE_PREFIX = "https://thumbnews.nateimg.co.kr/idol140x88/";
+const ARTICLE_ID_PATTERN = /\/view\/(\d{8}n\d+)/i;
+
 function hashText(value: string) {
   let hash = 0;
 
@@ -54,6 +73,88 @@ function getThumbMotionVariant(item: NewsItem, index: number): ThumbMotionVarian
   return THUMB_MOTION_VARIANTS[seed % THUMB_MOTION_VARIANTS.length];
 }
 
+function decodeHtmlEntities(value: string) {
+  return value
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;|&apos;/g, "'")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&#(\d+);/g, (_, code) =>
+      String.fromCodePoint(Number.parseInt(code, 10)),
+    )
+    .replace(/&#x([0-9a-f]+);/gi, (_, code) =>
+      String.fromCodePoint(Number.parseInt(code, 16)),
+    );
+}
+
+function cleanText(value: string) {
+  return decodeHtmlEntities(value)
+    .replace(/\\[nrtt]/g, " ")
+    .replace(/\\(["'/\\])/g, "$1")
+    .replace(/\\/g, "")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function normalizeNateUrl(value: string) {
+  const normalizedValue = decodeHtmlEntities(value).trim();
+
+  if (normalizedValue.startsWith("//")) {
+    return `https:${normalizedValue}`;
+  }
+
+  return normalizedValue;
+}
+
+function normalizeImageUrl(value: string) {
+  const normalizedValue = normalizeNateUrl(value);
+
+  if (normalizedValue.startsWith(NATE_IMAGE_PREFIX)) {
+    return normalizedValue.replace(NATE_IMAGE_PREFIX, NATE_VIEW_IMAGE_PREFIX);
+  }
+
+  if (normalizedValue.startsWith(NATE_IDOL_IMAGE_PREFIX)) {
+    return normalizedValue.replace(NATE_IDOL_IMAGE_PREFIX, NATE_VIEW_IMAGE_PREFIX);
+  }
+
+  return normalizedValue;
+}
+
+function getArticleId(value: string) {
+  return normalizeNateUrl(value).match(ARTICLE_ID_PATTERN)?.[1] ?? null;
+}
+
+function mapNateRankItemToNewsItem(
+  item: NateEmoticonRankItem,
+  fallbackRank: number,
+): NewsItem | null {
+  const mobileLink = normalizeNateUrl(item.mobileUrl ?? "");
+  const pcLink = normalizeNateUrl(item.pcUrl ?? "");
+  const articleId = getArticleId(mobileLink || pcLink);
+  const title = cleanText(item.title ?? "");
+  const imageUrl = normalizeImageUrl(item.imageUrl ?? "");
+
+  if (!articleId || !mobileLink || !pcLink || !title || !imageUrl) {
+    return null;
+  }
+
+  return {
+    id: articleId,
+    rank: item.rank ?? fallbackRank,
+    title,
+    link: pcLink,
+    mobileLink,
+    pcLink,
+    imageUrl,
+    sourceName: item.cpName ? cleanText(item.cpName) : null,
+    topComment: null,
+    recommendationCount:
+      typeof item.emoticonCnt === "number" ? item.emoticonCnt : null,
+  };
+}
+
 function getItemsFromResponse(value: unknown): NewsItem[] {
   if (Array.isArray(value)) {
     return value as NewsItem[];
@@ -65,6 +166,16 @@ function getItemsFromResponse(value: unknown): NewsItem[] {
     Array.isArray((value as NewsFeedResponse).items)
   ) {
     return (value as NewsFeedResponse).items ?? [];
+  }
+
+  if (
+    value &&
+    typeof value === "object" &&
+    Array.isArray((value as NateEmoticonRankResponse).data)
+  ) {
+    return ((value as NateEmoticonRankResponse).data ?? [])
+      .map((item, index) => mapNateRankItemToNewsItem(item, index + 1))
+      .filter((item): item is NewsItem => item !== null);
   }
 
   return [];
@@ -110,7 +221,8 @@ export function NewsFeed({ items: initialItems }: NewsFeedProps) {
 
   /**
    * - dev: Vite 프록시 → 로컬 Express
-   * - prod: 같은 origin의 /api/news 또는 base 아래 /api/news 중 동작하는 쪽을 자동 선택
+   * - shortform 정적 배포: api.news.nate.com 프록시인 /service/api/ranks/emoticons 사용
+   * - 그 외 prod: 같은 origin의 앱 API(/service/api/news 또는 /api/news) 사용
    * - 정적 호스트만 쓸 때: `VITE_NEWS_API_URL`(절대 URL)로 외부 API 지정 가능
    */
   const newsApiCandidates = useMemo(() => {
@@ -119,12 +231,16 @@ export function NewsFeed({ items: initialItems }: NewsFeedProps) {
     }
 
     const external = import.meta.env.VITE_NEWS_API_URL?.trim();
-    const serviceApi = "/service/api/news";
+    const isShortnewsDeploy = import.meta.env.BASE_URL.startsWith("/shortnews");
+    const shortformNateRankApi = "/service/api/ranks/emoticons?pageSize=20";
+    const serviceNewsApi = "/service/api/news";
     const baseApi = import.meta.env.BASE_URL.endsWith("/")
       ? `${import.meta.env.BASE_URL}api/news`
       : `${import.meta.env.BASE_URL}/api/news`;
 
-    const candidates = [serviceApi, baseApi, "/api/news"];
+    const candidates = isShortnewsDeploy
+      ? [shortformNateRankApi, baseApi, "/api/news"]
+      : [serviceNewsApi, baseApi, "/api/news"];
     if (external) {
       candidates.unshift(external);
     }
