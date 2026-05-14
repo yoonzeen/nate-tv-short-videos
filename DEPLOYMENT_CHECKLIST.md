@@ -66,6 +66,7 @@ dist/
 - 기본 API는 `http://api.news.nate.com:8080/photoslides/firstItems`입니다.
 - `shortform.nate.com/shortnews` 배포에서는 `https://shortform.nate.com/service/api/photoslides/firstItems`를 사용합니다.
 - Vercel 배포에서는 `/service/api/photoslides/firstItems`가 Vercel Function을 통해 기본 API로 프록시됩니다.
+- Vercel에서 기본 Nate API에 접근할 수 없으면 **Project Settings → Environment Variables**에 **`NATE_PHOTO_SLIDES_API_URL`** = 외부에서 접근 가능한 프록시 URL을 설정해야 합니다.
 - 배포 환경에서 다른 프록시를 써야 하면 CI/CD Variables에 **`VITE_NEWS_API_URL`** = photoslides API **절대 URL**을 넣고 빌드하세요.
 
 ## 배포 전 테스트

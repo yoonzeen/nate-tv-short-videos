@@ -13,7 +13,25 @@ const PHOTO_SLIDES_API_URL =
   process.env.NATE_PHOTO_SLIDES_API_URL?.trim() ||
   "http://api.news.nate.com:8080/photoslides/firstItems";
 
+function getErrorMessage(error: unknown) {
+  if (error instanceof Error) {
+    const cause = error.cause;
+    if (cause && typeof cause === "object" && "code" in cause) {
+      return `${error.message} (${String(cause.code)})`;
+    }
+    return error.message;
+  }
+
+  return String(error);
+}
+
 async function fetchPhotoSlidesFirstItems() {
+  if (process.env.VERCEL && !process.env.NATE_PHOTO_SLIDES_API_URL?.trim()) {
+    throw new Error(
+      "NATE_PHOTO_SLIDES_API_URL is required on Vercel because the default Nate API is not publicly reachable.",
+    );
+  }
+
   const response = await fetch(PHOTO_SLIDES_API_URL, {
     cache: "no-store",
     headers: {
@@ -56,6 +74,8 @@ export default async function handler(
     console.error("Failed to fetch photoslides firstItems", error);
     res.status(502).json({
       message: "Failed to fetch photoslides firstItems.",
+      upstream: PHOTO_SLIDES_API_URL,
+      error: getErrorMessage(error),
     });
   }
 }
