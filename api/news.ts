@@ -13,6 +13,13 @@ const PHOTO_SLIDES_API_URL =
   process.env.NATE_PHOTO_SLIDES_API_URL?.trim() ||
   "https://shortform.nate.com/service/api/photoslides/firstItems";
 
+const REQUEST_HEADERS = {
+  accept: "application/json",
+  referer: "https://shortform.nate.com/shortnews/",
+  "user-agent":
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36",
+};
+
 function getErrorMessage(error: unknown) {
   if (error instanceof Error) {
     const cause = error.cause;
@@ -28,13 +35,18 @@ function getErrorMessage(error: unknown) {
 async function fetchPhotoSlidesFirstItems() {
   const response = await fetch(PHOTO_SLIDES_API_URL, {
     cache: "no-store",
-    headers: {
-      accept: "application/json",
-    },
+    headers: REQUEST_HEADERS,
   });
 
   if (!response.ok) {
-    throw new Error(`photoslides ${response.status}`);
+    const sample = (await response.text()).slice(0, 120);
+    throw new Error(`photoslides ${response.status}: ${sample}`);
+  }
+
+  const contentType = response.headers.get("content-type") ?? "";
+  if (!contentType.includes("application/json")) {
+    const sample = (await response.text()).slice(0, 120);
+    throw new Error(`photoslides invalid content-type (${contentType}): ${sample}`);
   }
 
   return response.json();
