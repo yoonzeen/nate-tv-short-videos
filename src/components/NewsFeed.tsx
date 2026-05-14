@@ -17,6 +17,10 @@ const TOUCH_NATIVE_SCROLL_DELTA_PX = 4;
 const TOUCH_FALLBACK_NAVIGATION_DELAY_MS = 40;
 const SHORTFORM_PHOTO_SLIDES_FIRST_ITEMS_API_PATH =
   "/service/api/photoslides/firstItems";
+const SHORTFORM_PHOTO_SLIDES_FIRST_ITEMS_API_URL =
+  "https://shortform.nate.com/service/api/photoslides/firstItems";
+const NATE_PHOTO_SLIDES_FIRST_ITEMS_API_URL =
+  "http://api.news.nate.com:8080/photoslides/firstItems";
 
 const THUMB_MOTION_VARIANTS = ["panLeft", "panRight"] as const;
 type ThumbMotionVariant = (typeof THUMB_MOTION_VARIANTS)[number];
@@ -222,8 +226,32 @@ function prepareNewsItems(items: PhotoSlideItem[]) {
   return shuffleNewsItems(getUniqueNewsItems(items));
 }
 
-function getShortformPhotoSlidesFirstItemsApiUrl() {
-  return SHORTFORM_PHOTO_SLIDES_FIRST_ITEMS_API_PATH;
+function getPhotoSlidesFirstItemsApiCandidates() {
+  const external = import.meta.env.VITE_NEWS_API_URL?.trim();
+  const candidates: string[] = [];
+
+  if (external) {
+    candidates.push(external);
+  }
+
+  if (typeof window !== "undefined") {
+    const isShortformHost = window.location.hostname === "shortform.nate.com";
+    const isShortnewsPath =
+      window.location.pathname.startsWith("/shortnews") ||
+      import.meta.env.BASE_URL.startsWith("/shortnews");
+
+    if (isShortformHost && isShortnewsPath) {
+      candidates.push(SHORTFORM_PHOTO_SLIDES_FIRST_ITEMS_API_URL);
+    } else if (import.meta.env.DEV) {
+      candidates.push(SHORTFORM_PHOTO_SLIDES_FIRST_ITEMS_API_PATH);
+    } else {
+      candidates.push(NATE_PHOTO_SLIDES_FIRST_ITEMS_API_URL);
+    }
+  } else {
+    candidates.push(NATE_PHOTO_SLIDES_FIRST_ITEMS_API_URL);
+  }
+
+  return Array.from(new Set(candidates));
 }
 
 async function fetchNewsItemsFromCandidates(urls: string[], signal: AbortSignal) {
@@ -301,18 +329,7 @@ export function NewsFeed({ items: initialItems }: NewsFeedProps) {
   const frozenThumbObjectPositionRef = useRef(new Map<number, string>());
   const portraitThumbRef = useRef(new Map<string, boolean>());
 
-  /**
-   * 기본은 배포 프록시의 photoslides API를 직접 사용한다.
-   * 정적 호스트에서 경로가 다르면 `VITE_NEWS_API_URL`에 전체 API URL을 지정한다.
-   */
-  const newsApiCandidates = useMemo(() => {
-    const external = import.meta.env.VITE_NEWS_API_URL?.trim();
-    const shortformPhotoSlidesApi = getShortformPhotoSlidesFirstItemsApiUrl();
-
-    return external && external !== shortformPhotoSlidesApi
-      ? [external, shortformPhotoSlidesApi]
-      : [shortformPhotoSlidesApi];
-  }, []);
+  const newsApiCandidates = useMemo(getPhotoSlidesFirstItemsApiCandidates, []);
 
   const hasLoop = items.length > 1;
   const loopCount = hasLoop ? items.length + 2 : items.length;
@@ -521,7 +538,7 @@ export function NewsFeed({ items: initialItems }: NewsFeedProps) {
 
         setApiError(
           !externalConfigured && isShortnewsStaticBase
-            ? `${message}\n\n(정적 배포에서 /service/api 경로가 열려 있지 않다면 빌드 시 VITE_NEWS_API_URL에 photoslides API 전체 URL을 지정해 주세요.)`
+            ? `${message}\n\n(배포 환경에서 기본 API 경로가 맞지 않다면 빌드 시 VITE_NEWS_API_URL에 photoslides API 전체 URL을 지정해 주세요.)`
             : message,
         );
       } finally {

@@ -22,7 +22,8 @@
 - 베플: `firstItems` 응답의 `bestCmtContent`를 사용
 
 브라우저가 photoslides API 응답을 받아 앱 내부 피드 형식으로 변환합니다.  
-로컬 개발에서는 Vite 프록시가 `/service/api/*`를 Nate API로 전달합니다.
+로컬 개발에서는 Vite 프록시가 `/service/api/*`를 `http://api.news.nate.com:8080/*`로 전달합니다.  
+`shortform.nate.com/shortnews` 배포에서는 `https://shortform.nate.com/service/api/photoslides/firstItems`를 사용하고, 그 외 기본값은 `http://api.news.nate.com:8080/photoslides/firstItems`입니다.
 
 ## 기술 스택
 
@@ -116,7 +117,7 @@ type NateNewsFeed = {
 3. 그 외 로컬/일반 빌드 → `/`
 
 - **GitHub Actions**: `.github/workflows/deploy-pages.yml`에서 `GITHUB_PAGES=true` 후 `npm run build`, 산출물은 `out/`.
-- **GitLab Pages**: `.gitlab-ci.yml`에서 `GITLAB_PAGES=true` 후 빌드, `out`을 **`public`**으로 옮겨 업로드(Pages 규칙). 배포 환경에서 `/service/api/photoslides/firstItems` 경로가 열려 있지 않다면 **`VITE_NEWS_API_URL`**에 전체 API URL을 넣고 빌드하세요.
+- **GitLab Pages / Vercel 등 외부 호스팅**: 기본 API는 `http://api.news.nate.com:8080/photoslides/firstItems`입니다. 배포 환경에서 다른 프록시를 써야 하면 **`VITE_NEWS_API_URL`**에 전체 API URL을 넣고 빌드하세요.
 
 GitHub Pages·정적 호스팅만 쓰는 경우에도 마찬가지로, **`VITE_NEWS_API_URL`**로 접근 가능한 API 전체 URL을 지정하면 됩니다.
 

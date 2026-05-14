@@ -63,7 +63,9 @@ dist/
 - 빌드 시 **`GITLAB_PAGES=true`** 또는 **`GITHUB_PAGES=true`** 등으로 `vite.config.ts`의 `base`가 **`/shortnews/`** 가 되도록 맞출 것.
 - 산출물: **`out/`** (GitHub Actions 아티팩트는 이 경로).
 - GitLab Pages는 CI에서 **`out` → `public`** 으로 옮긴 뒤 아티팩트 업로드(`.gitlab-ci.yml` 참고).
-- 배포 환경에 `/service/api/photoslides/firstItems` 경로가 없다면 GitLab CI **CI/CD Variables**에 **`VITE_NEWS_API_URL`** = photoslides API **절대 URL**을 넣고 빌드하세요.
+- 기본 API는 `http://api.news.nate.com:8080/photoslides/firstItems`입니다.
+- `shortform.nate.com/shortnews` 배포에서는 `https://shortform.nate.com/service/api/photoslides/firstItems`를 사용합니다.
+- 배포 환경에서 다른 프록시를 써야 하면 CI/CD Variables에 **`VITE_NEWS_API_URL`** = photoslides API **절대 URL**을 넣고 빌드하세요.
 
 ## 배포 전 테스트
 

@@ -2,6 +2,7 @@
 # 배포 환경에서 /service/api/photoslides/firstItems 경로가 없으면
 # CI/CD Variables에 아래를 설정하세요(마스크하지 말 것).
 #   VITE_NEWS_API_URL = https://example.com/service/api/photoslides/firstItems
+# 기본 API는 http://api.news.nate.com:8080/photoslides/firstItems 입니다.
 #
 # 빌드 산출물은 Pages 규칙상 `public/` 이어서 out → public 으로 둡니다.
 image: node:22
