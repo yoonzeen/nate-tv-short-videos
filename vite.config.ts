@@ -52,7 +52,7 @@ export default defineConfig(({ command }) => {
   },
   server: {
     proxy: {
-      /* 로컬에서도 Jenkins/shortform 배포와 같은 Nate API 프록시 경로 사용 */
+      /* 앱이 사용하는 photoslides 경로는 Vite가 직접 Nate API로 프록시 */
       "/service/api": {
         target: "http://api.news.nate.com:8080",
         changeOrigin: true,

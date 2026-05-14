@@ -48,11 +48,11 @@ dist/
    ```
    로컬 루트 경로만 쓸 때는 환경변수 없이 `npm run build` (`base=/`).
 
-3. **미리보기**
+3. **실행**
    ```bash
    npm run start
    ```
-   - Vite preview로 `out/` 산출물을 확인합니다.
+   - Express가 `out/` 산출물과 `/service/api/photoslides/firstItems` 프록시를 함께 제공합니다.
 
 4. **확인**
    - Pages base에 맞는 URL (예: `…/shortnews/`)
@@ -65,6 +65,7 @@ dist/
 - GitLab Pages는 CI에서 **`out` → `public`** 으로 옮긴 뒤 아티팩트 업로드(`.gitlab-ci.yml` 참고).
 - 기본 API는 `http://api.news.nate.com:8080/photoslides/firstItems`입니다.
 - `shortform.nate.com/shortnews` 배포에서는 `https://shortform.nate.com/service/api/photoslides/firstItems`를 사용합니다.
+- Vercel 배포에서는 `/service/api/photoslides/firstItems`가 Vercel Function을 통해 기본 API로 프록시됩니다.
 - 배포 환경에서 다른 프록시를 써야 하면 CI/CD Variables에 **`VITE_NEWS_API_URL`** = photoslides API **절대 URL**을 넣고 빌드하세요.
 
 ## 배포 전 테스트
@@ -77,7 +78,7 @@ dist/
 ## 실행 환경
 
 - **Node.js**: 20.9.0+ (권장 22 LTS)
-- **포트**: Vite dev 5173, Vite preview 기본 포트
+- **포트**: Vite dev 5173, 개발 API 프록시 8787, `npm run start` 기본 3000
 - **네트워크**: `/service/api/photoslides/firstItems` 또는 `VITE_NEWS_API_URL` 접근 가능해야 함
 
 ## 주요 사용자 대면 경로

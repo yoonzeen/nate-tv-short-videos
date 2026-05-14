@@ -236,13 +236,14 @@ function getPhotoSlidesFirstItemsApiCandidates() {
 
   if (typeof window !== "undefined") {
     const isShortformHost = window.location.hostname === "shortform.nate.com";
+    const isVercelHost = window.location.hostname.endsWith(".vercel.app");
     const isShortnewsPath =
       window.location.pathname.startsWith("/shortnews") ||
       import.meta.env.BASE_URL.startsWith("/shortnews");
 
     if (isShortformHost && isShortnewsPath) {
       candidates.push(SHORTFORM_PHOTO_SLIDES_FIRST_ITEMS_API_URL);
-    } else if (import.meta.env.DEV) {
+    } else if (import.meta.env.DEV || isVercelHost) {
       candidates.push(SHORTFORM_PHOTO_SLIDES_FIRST_ITEMS_API_PATH);
     } else {
       candidates.push(NATE_PHOTO_SLIDES_FIRST_ITEMS_API_URL);

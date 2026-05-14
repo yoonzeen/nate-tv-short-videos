@@ -23,7 +23,8 @@
 
 브라우저가 photoslides API 응답을 받아 앱 내부 피드 형식으로 변환합니다.  
 로컬 개발에서는 Vite 프록시가 `/service/api/*`를 `http://api.news.nate.com:8080/*`로 전달합니다.  
-`shortform.nate.com/shortnews` 배포에서는 `https://shortform.nate.com/service/api/photoslides/firstItems`를 사용하고, 그 외 기본값은 `http://api.news.nate.com:8080/photoslides/firstItems`입니다.
+`shortform.nate.com/shortnews` 배포에서는 `https://shortform.nate.com/service/api/photoslides/firstItems`를 사용합니다.  
+Vercel 배포에서는 `/service/api/photoslides/firstItems`를 Vercel Function이 `http://api.news.nate.com:8080/photoslides/firstItems`로 프록시합니다.
 
 ## 기술 스택
 
@@ -31,6 +32,8 @@
 - `React` 19, `react-router-dom` 7
 - `TypeScript`
 - `CSS Modules`
+- `Express` — 로컬/Node 실행 시 photoslides API 프록시
+- Vercel Function — 배포 시 `/service/api/photoslides/firstItems` 프록시
 
 ## Node.js 버전
 
@@ -45,7 +48,7 @@
 npm install
 ```
 
-2. 개발 실행
+2. 개발 실행 (API 프록시 + Vite)
 
 ```bash
 npm run dev
@@ -54,16 +57,16 @@ npm run dev
 3. 브라우저에서 확인
 
 - 프론트: `http://localhost:5173`
-- Vite가 `/service/api`를 Nate API로 프록시합니다.
+- Vite가 `/service/api`를 Nate API로 직접 프록시합니다.
 
 ## 사용 가능한 스크립트
 
 | 명령 | 설명 |
 |------|------|
-| `npm run dev` | Vite dev 서버(5173) |
+| `npm run dev` | Express API 프록시(8787) + Vite dev 서버(5173) |
 | `npm run build` | `out/`에 정적 빌드 (`vite build`) |
 | `npm run preview` | 빌드 결과 미리보기(Vite) |
-| `npm run start` | 빌드 결과 미리보기(Vite preview) |
+| `npm run start` | `out/` 정적 파일 + API 프록시를 Express로 서빙 |
 | `npm run lint` | ESLint |
 
 ## 라우트(클라이언트)
@@ -82,21 +85,24 @@ npm run dev
 앱은 응답의 `data[]`를 내부 피드 아이템으로 변환합니다.
 
 ```ts
-type NateNewsItem = {
-  id: string;
-  rank: number;
+type PhotoSlideItem = {
   title: string;
-  link: string;
-  mobileLink?: string;
-  pcLink?: string;
+  mobileUrl: string;
+  pcUrl: string;
   imageUrl: string;
-  sourceName: string | null;
-  topComment: string | null;
-  recommendationCount: number | null;
+  cpName: string;
+  emoticonCnt: number;
+  bestCmtSq: number;
+  bestCmtContent: string | null;
+  bestCmtMobileUrl: string;
+  bestCmtPcUrl: string;
 };
 
-type NateNewsFeed = {
-  items: NateNewsItem[];
+type NatePhotoSlidesResponse = {
+  code?: string;
+  message?: string;
+  timestamp?: string;
+  data?: PhotoSlideItem[];
 };
 ```
 
@@ -117,7 +123,8 @@ type NateNewsFeed = {
 3. 그 외 로컬/일반 빌드 → `/`
 
 - **GitHub Actions**: `.github/workflows/deploy-pages.yml`에서 `GITHUB_PAGES=true` 후 `npm run build`, 산출물은 `out/`.
-- **GitLab Pages / Vercel 등 외부 호스팅**: 기본 API는 `http://api.news.nate.com:8080/photoslides/firstItems`입니다. 배포 환경에서 다른 프록시를 써야 하면 **`VITE_NEWS_API_URL`**에 전체 API URL을 넣고 빌드하세요.
+- **Vercel**: `/service/api/photoslides/firstItems`가 Vercel Function `/api/photoslides/firstItems`로 rewrite되어 기본 Nate API를 프록시합니다.
+- **GitLab Pages 등 정적 호스팅**: 기본 API는 `http://api.news.nate.com:8080/photoslides/firstItems`입니다. 배포 환경에서 다른 프록시를 써야 하면 **`VITE_NEWS_API_URL`**에 전체 API URL을 넣고 빌드하세요.
 
 GitHub Pages·정적 호스팅만 쓰는 경우에도 마찬가지로, **`VITE_NEWS_API_URL`**로 접근 가능한 API 전체 URL을 지정하면 됩니다.
 
@@ -133,6 +140,14 @@ src/
   components/
     NewsFeed.tsx
     NewsFeed.module.css
+api/
+  news.ts
+  photoslides/
+    firstItems.ts       # Vercel Function: photoslides 프록시
+lib/
+  nateNews.ts           # photoslides fetch 공통 로직
+server/
+  index.ts              # Express: API 프록시 + out 정적 서빙
 public/                # 정적 자산 (빌드 시 루트로 복사)
 data/                  # (선택) 정적 데이터
 ```
@@ -142,6 +157,9 @@ data/                  # (선택) 정적 데이터
 - `src/App.tsx` — `BrowserRouter`, `/`·`/news`
 - `src/components/NewsFeed.tsx` — 스냅 피드, 자동 전환, 스와이프·휠, 썸네일 모션
 - `src/components/NewsFeed.module.css` — 뉴스 피드·카드 스타일
+- `lib/nateNews.ts` — photoslides API 호출 공통 로직
+- `api/photoslides/firstItems.ts` — Vercel same-origin API 프록시
+- `server/index.ts` — 로컬/Node API 프록시 및 정적 서빙
 
 ## 참고
 
