@@ -1,5 +1,15 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "buildCommand": "npm run build",
-  "outputDirectory": "out"
+  "outputDirectory": "out",
+  "rewrites": [
+    {
+      "source": "/service/api/:path*",
+      "destination": "http://api.news.nate.com:8080/:path*"
+    },
+    {
+      "source": "/shortnews/service/api/:path*",
+      "destination": "http://api.news.nate.com:8080/:path*"
+    }
+  ]
 }
