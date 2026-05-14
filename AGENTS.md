@@ -1,1 +1,1 @@
-This project is a **Vite + React** SPA with a small **Express** server for `/api/news` (Nate crawl). Static builds use **`base: /shortnews/`** when `GITHUB_PAGES=true`, `GITLAB_PAGES=true`, or `APP_BASE_PATH=shortnews` (see `vite.config.ts`).
+This project is a **Vite + React** SPA that reads Nate photoslides data directly from `/service/api/photoslides/firstItems` (or `VITE_NEWS_API_URL` when configured). Static builds use **`base: /shortnews/`** when `GITHUB_PAGES=true`, `GITLAB_PAGES=true`, or `APP_BASE_PATH=shortnews` (see `vite.config.ts`).

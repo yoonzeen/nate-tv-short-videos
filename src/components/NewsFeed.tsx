@@ -15,54 +15,35 @@ const SWIPE_ANIMATION_RESUME_DELAY_MS = 180;
 const SCROLL_SETTLE_SYNC_DELAY_MS = SWIPE_ANIMATION_RESUME_DELAY_MS + 80;
 const TOUCH_NATIVE_SCROLL_DELTA_PX = 4;
 const TOUCH_FALLBACK_NAVIGATION_DELAY_MS = 40;
-const TOTAL_NEWS_COUNT = 30;
-const NEWS_BATCH_SIZE = TOTAL_NEWS_COUNT;
-const NEWS_LOAD_AHEAD_COUNT = 3;
-const SHORTFORM_EMOTICON_RANK_API_PATH =
-  "/service/api/ranks/emoticons?platformType=mnews&type=section&section=tot&emoticonNo=1";
+const SHORTFORM_PHOTO_SLIDES_FIRST_ITEMS_API_PATH =
+  "/service/api/photoslides/firstItems";
 
 const THUMB_MOTION_VARIANTS = ["panLeft", "panRight"] as const;
 type ThumbMotionVariant = (typeof THUMB_MOTION_VARIANTS)[number];
 
 const THUMB_OBJECT_POS_DELTA = 10; // crop 없이도 '움직임' 느낌
 
-type NewsItem = {
-  id: string;
-  rank: number;
+type PhotoSlideItem = {
   title: string;
-  link: string;
-  mobileLink?: string;
-  pcLink?: string;
+  mobileUrl: string;
+  pcUrl: string;
   imageUrl: string;
-  sourceName: string | null;
-  topComment: string | null;
-  recommendationCount: number | null;
+  cpName: string;
+  emoticonCnt: number;
+  bestCmtSq: number;
+  bestCmtContent: string | null;
+  bestCmtMobileUrl: string;
+  bestCmtPcUrl: string;
 };
 
 type NewsFeedProps = {
-  items?: NewsItem[];
+  items?: PhotoSlideItem[];
 };
 
-type NewsFeedResponse = {
-  items?: NewsItem[];
+type NatePhotoSlidesResponse = {
+  data?: PhotoSlideItem[];
 };
 
-type NateEmoticonRankItem = {
-  rank?: number;
-  title?: string;
-  mobileUrl?: string;
-  pcUrl?: string;
-  imageUrl?: string;
-  cpName?: string;
-  emoticonCnt?: number;
-};
-
-type NateEmoticonRankResponse = {
-  data?: NateEmoticonRankItem[];
-};
-
-const NATE_IMAGE_PREFIX = "https://thumbnews.nateimg.co.kr/mnews107x80/";
-const NATE_VIEW_IMAGE_PREFIX = "https://thumbnews.nateimg.co.kr/view610/";
 const ARTICLE_ID_PATTERN = /\/view\/(\d{8}n\d+)/i;
 
 function hashText(value: string) {
@@ -75,8 +56,12 @@ function hashText(value: string) {
   return hash;
 }
 
-function getThumbMotionVariant(item: NewsItem, index: number): ThumbMotionVariant {
-  const seed = hashText(`${item.id}:${index}`);
+function getSlideId(item: PhotoSlideItem) {
+  return getArticleId(item.pcUrl || item.mobileUrl) ?? `${item.pcUrl}:${item.title}`;
+}
+
+function getThumbMotionVariant(item: PhotoSlideItem, index: number): ThumbMotionVariant {
+  const seed = hashText(`${getSlideId(item)}:${index}`);
 
   return THUMB_MOTION_VARIANTS[seed % THUMB_MOTION_VARIANTS.length];
 }
@@ -89,7 +74,7 @@ function getThumbMotionProgress(slideProgress: number) {
 }
 
 function getThumbObjectPositionAtProgress(
-  item: NewsItem,
+  item: PhotoSlideItem,
   index: number,
   progress: number,
   isPortrait: boolean,
@@ -145,37 +130,8 @@ function normalizeNateUrl(value: string) {
   return normalizedValue;
 }
 
-function decodeUrlComponentSafely(value: string) {
-  try {
-    return decodeURIComponent(value);
-  } catch {
-    return value;
-  }
-}
-
 function normalizeImageUrl(value: string) {
   const normalizedValue = normalizeNateUrl(value);
-  const thumbPrefixes = [NATE_IMAGE_PREFIX, NATE_VIEW_IMAGE_PREFIX];
-
-  for (const prefix of thumbPrefixes) {
-    if (!normalizedValue.startsWith(prefix)) {
-      continue;
-    }
-
-    const decodedValue = decodeUrlComponentSafely(
-      normalizedValue.slice(prefix.length),
-    );
-
-    if (/^https?:\/\//i.test(decodedValue)) {
-      return decodedValue;
-    }
-
-    if (decodedValue.startsWith("news.nateimg.co.kr/")) {
-      return `https://${decodedValue}`;
-    }
-
-    return decodedValue;
-  }
 
   return normalizedValue;
 }
@@ -184,63 +140,90 @@ function getArticleId(value: string) {
   return normalizeNateUrl(value).match(ARTICLE_ID_PATTERN)?.[1] ?? null;
 }
 
-function mapNateRankItemToNewsItem(
-  item: NateEmoticonRankItem,
-  fallbackRank: number,
-): NewsItem | null {
-  const mobileLink = normalizeNateUrl(item.mobileUrl ?? "");
-  const pcLink = normalizeNateUrl(item.pcUrl ?? "");
-  const articleId = getArticleId(mobileLink || pcLink);
-  const title = cleanText(item.title ?? "");
-  const imageUrl = normalizeImageUrl(item.imageUrl ?? "");
-
-  if (!articleId || !mobileLink || !pcLink || !title || !imageUrl) {
-    return null;
+function shouldUseMobileArticleUrl() {
+  if (typeof window === "undefined") {
+    return false;
   }
 
-  return {
-    id: articleId,
-    rank: item.rank ?? fallbackRank,
-    title,
-    link: pcLink,
-    mobileLink,
-    pcLink,
-    imageUrl,
-    sourceName: item.cpName ? cleanText(item.cpName) : null,
-    topComment: null,
-    recommendationCount:
-      typeof item.emoticonCnt === "number" ? item.emoticonCnt : null,
-  };
+  const userAgent = navigator.userAgent;
+  const isMobileUserAgent =
+    /Android|iPhone|iPod|IEMobile|Mobile/i.test(userAgent) ||
+    (/Macintosh/i.test(userAgent) && (navigator.maxTouchPoints ?? 0) > 1);
+  const isCoarseSmallViewport =
+    window.matchMedia("(pointer: coarse)").matches &&
+    window.matchMedia("(max-width: 768px)").matches;
+
+  return isMobileUserAgent || isCoarseSmallViewport;
 }
 
-function getItemsFromResponse(value: unknown): NewsItem[] {
+function isPhotoSlideItem(value: unknown): value is PhotoSlideItem {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+
+  const item = value as Partial<PhotoSlideItem>;
+  return Boolean(
+    item.title &&
+      item.mobileUrl &&
+      item.pcUrl &&
+      item.imageUrl &&
+      getArticleId(item.mobileUrl || item.pcUrl),
+  );
+}
+
+function getItemsFromResponse(value: unknown): PhotoSlideItem[] {
   if (Array.isArray(value)) {
-    return value as NewsItem[];
+    return value.filter(isPhotoSlideItem);
   }
 
   if (
     value &&
     typeof value === "object" &&
-    Array.isArray((value as NewsFeedResponse).items)
+    Array.isArray((value as NatePhotoSlidesResponse).data)
   ) {
-    return (value as NewsFeedResponse).items ?? [];
-  }
-
-  if (
-    value &&
-    typeof value === "object" &&
-    Array.isArray((value as NateEmoticonRankResponse).data)
-  ) {
-    return ((value as NateEmoticonRankResponse).data ?? [])
-      .map((item, index) => mapNateRankItemToNewsItem(item, index + 1))
-      .filter((item): item is NewsItem => item !== null);
+    return ((value as NatePhotoSlidesResponse).data ?? []).filter(isPhotoSlideItem);
   }
 
   return [];
 }
 
-function getShortformEmoticonRankApiUrl(pageSize: number) {
-  return `${SHORTFORM_EMOTICON_RANK_API_PATH}&pageSize=${pageSize}`;
+function getUniqueNewsItems(items: PhotoSlideItem[]) {
+  const seen = new Set<string>();
+  const uniqueItems: PhotoSlideItem[] = [];
+
+  for (const item of items) {
+    const id = getSlideId(item);
+    if (seen.has(id)) {
+      continue;
+    }
+
+    seen.add(id);
+    uniqueItems.push(item);
+  }
+
+  return uniqueItems;
+}
+
+function shuffleNewsItems(items: PhotoSlideItem[]) {
+  const shuffledItems = [...items];
+
+  for (let index = shuffledItems.length - 1; index > 0; index -= 1) {
+    const swapIndex = Math.floor(Math.random() * (index + 1));
+    const current = shuffledItems[index];
+    const swap = shuffledItems[swapIndex];
+    shuffledItems[index] = swap;
+    shuffledItems[swapIndex] = current;
+  }
+
+  return shuffledItems;
+}
+
+function prepareNewsItems(items: PhotoSlideItem[]) {
+  return shuffleNewsItems(getUniqueNewsItems(items));
+}
+
+function getShortformPhotoSlidesFirstItemsApiUrl() {
+  return SHORTFORM_PHOTO_SLIDES_FIRST_ITEMS_API_PATH;
 }
 
 async function fetchNewsItemsFromCandidates(urls: string[], signal: AbortSignal) {
@@ -265,7 +248,7 @@ async function fetchNewsItemsFromCandidates(urls: string[], signal: AbortSignal)
         );
       }
 
-      const data = getItemsFromResponse(await response.json());
+      const data = prepareNewsItems(getItemsFromResponse(await response.json()));
       return data;
     } catch (error) {
       lastError = error;
@@ -275,26 +258,12 @@ async function fetchNewsItemsFromCandidates(urls: string[], signal: AbortSignal)
   throw lastError ?? new Error("news request failed");
 }
 
-function mergeNewsItems(currentItems: NewsItem[], nextItems: NewsItem[]) {
-  const seen = new Set(currentItems.map((item) => item.id));
-  const merged = [...currentItems];
-
-  for (const item of nextItems) {
-    if (seen.has(item.id)) {
-      continue;
-    }
-
-    seen.add(item.id);
-    merged.push(item);
-  }
-
-  return merged.slice(0, TOTAL_NEWS_COUNT);
-}
-
 const commentIconSrc = `${import.meta.env.BASE_URL}images/ico-reple.png`;
 
 export function NewsFeed({ items: initialItems }: NewsFeedProps) {
-  const [items, setItems] = useState<NewsItem[]>(() => initialItems ?? []);
+  const [items, setItems] = useState<PhotoSlideItem[]>(() =>
+    prepareNewsItems(initialItems ?? []),
+  );
   const [loading, setLoading] = useState(!(initialItems && initialItems.length > 0));
   const [apiError, setApiError] = useState<string | null>(null);
   const [activeIndex, setActiveIndex] = useState(0);
@@ -324,9 +293,6 @@ export function NewsFeed({ items: initialItems }: NewsFeedProps) {
   const gestureTimeoutRef = useRef<number | null>(null);
   const scrollEndTimeoutRef = useRef<number | null>(null);
   const pendingTouchNavigationTimeoutRef = useRef<number | null>(null);
-  const loadedBatchCountRef = useRef(0);
-  const isLoadingNextBatchRef = useRef(false);
-  const nextBatchAbortRef = useRef<AbortController | null>(null);
   const activeIndexRef = useRef(0);
   const activeLoopIndexRef = useRef(0);
   const navigationLockedRef = useRef(false);
@@ -336,32 +302,17 @@ export function NewsFeed({ items: initialItems }: NewsFeedProps) {
   const portraitThumbRef = useRef(new Map<string, boolean>());
 
   /**
-   * - dev: Vite 프록시 → 로컬 Express
-   * - shortform 배포: shortform 프록시로 열린 Nate emoticon ranking API 사용
-   * - 그 외 prod: 같은 origin의 앱 API(/service/api/news 또는 /api/news) 사용
-   * - 정적 호스트만 쓸 때: `VITE_NEWS_API_URL`(절대 URL)로 외부 API 지정 가능
+   * 기본은 배포 프록시의 photoslides API를 직접 사용한다.
+   * 정적 호스트에서 경로가 다르면 `VITE_NEWS_API_URL`에 전체 API URL을 지정한다.
    */
-  const isShortnewsDeploy = import.meta.env.BASE_URL.startsWith("/shortnews");
-  const usePagedEmoticonRankApi = import.meta.env.DEV || isShortnewsDeploy;
   const newsApiCandidates = useMemo(() => {
     const external = import.meta.env.VITE_NEWS_API_URL?.trim();
-    const shortformEmoticonRankApi =
-      getShortformEmoticonRankApiUrl(NEWS_BATCH_SIZE);
-    const serviceNewsApi = "/service/api/news";
-    const baseApi = import.meta.env.BASE_URL.endsWith("/")
-      ? `${import.meta.env.BASE_URL}api/news`
-      : `${import.meta.env.BASE_URL}/api/news`;
+    const shortformPhotoSlidesApi = getShortformPhotoSlidesFirstItemsApiUrl();
 
-    const candidates = usePagedEmoticonRankApi
-      ? [shortformEmoticonRankApi]
-      : [serviceNewsApi, baseApi, "/api/news"];
-    if (external) {
-      candidates.unshift(external);
-    }
-
-    // 중복 제거
-    return Array.from(new Set(candidates));
-  }, [usePagedEmoticonRankApi]);
+    return external && external !== shortformPhotoSlidesApi
+      ? [external, shortformPhotoSlidesApi]
+      : [shortformPhotoSlidesApi];
+  }, []);
 
   const hasLoop = items.length > 1;
   const loopCount = hasLoop ? items.length + 2 : items.length;
@@ -466,7 +417,18 @@ export function NewsFeed({ items: initialItems }: NewsFeedProps) {
   }, []);
 
   useEffect(() => {
-    setIsMobileDevice(window.matchMedia("(max-width: 768px)").matches);
+    const updateMobileDeviceState = () => {
+      setIsMobileDevice(shouldUseMobileArticleUrl());
+    };
+
+    updateMobileDeviceState();
+    window.addEventListener("resize", updateMobileDeviceState);
+    window.addEventListener("orientationchange", updateMobileDeviceState);
+
+    return () => {
+      window.removeEventListener("resize", updateMobileDeviceState);
+      window.removeEventListener("orientationchange", updateMobileDeviceState);
+    };
   }, []);
 
   useEffect(() => {
@@ -507,7 +469,7 @@ export function NewsFeed({ items: initialItems }: NewsFeedProps) {
   }, []);
 
   useEffect(() => {
-    const nextItems = initialItems ?? [];
+    const nextItems = prepareNewsItems(initialItems ?? []);
     const nextHasLoop = nextItems.length > 1;
 
     setItems(nextItems);
@@ -522,10 +484,6 @@ export function NewsFeed({ items: initialItems }: NewsFeedProps) {
     slideElapsedRef.current = 0;
     lastTickRef.current = null;
     navigationLockedRef.current = false;
-    loadedBatchCountRef.current = nextItems.length > 0 ? 1 : 0;
-    isLoadingNextBatchRef.current = false;
-    nextBatchAbortRef.current?.abort();
-    nextBatchAbortRef.current = null;
 
     if (scrollRafRef.current !== null) {
       window.cancelAnimationFrame(scrollRafRef.current);
@@ -548,11 +506,7 @@ export function NewsFeed({ items: initialItems }: NewsFeedProps) {
     const loadData = async () => {
       try {
         const data = await fetchNewsItemsFromCandidates(newsApiCandidates, signal);
-        setItems(data.slice(0, TOTAL_NEWS_COUNT));
-        loadedBatchCountRef.current = Math.max(
-          1,
-          Math.ceil(Math.min(data.length, TOTAL_NEWS_COUNT) / NEWS_BATCH_SIZE),
-        );
+        setItems(data);
       } catch (error) {
         if (error instanceof Error && error.name === "AbortError") {
           return;
@@ -567,7 +521,7 @@ export function NewsFeed({ items: initialItems }: NewsFeedProps) {
 
         setApiError(
           !externalConfigured && isShortnewsStaticBase
-            ? `${message}\n\n(정적 배포에서는 /api/news가 없어서 HTML이 내려올 수 있습니다. 빌드 시 VITE_NEWS_API_URL에 외부 뉴스 API 전체 URL을 지정해 주세요.)`
+            ? `${message}\n\n(정적 배포에서 /service/api 경로가 열려 있지 않다면 빌드 시 VITE_NEWS_API_URL에 photoslides API 전체 URL을 지정해 주세요.)`
             : message,
         );
       } finally {
@@ -585,59 +539,6 @@ export function NewsFeed({ items: initialItems }: NewsFeedProps) {
       controller.abort();
     };
   }, [initialItems, newsApiCandidates]);
-
-  const loadNextNewsBatch = useCallback(async () => {
-    if (
-      !usePagedEmoticonRankApi ||
-      (initialItems?.length ?? 0) > 0 ||
-      isLoadingNextBatchRef.current ||
-      loadedBatchCountRef.current * NEWS_BATCH_SIZE >= TOTAL_NEWS_COUNT
-    ) {
-      return;
-    }
-
-    const nextBatchCount = loadedBatchCountRef.current + 1;
-    const nextPageSize = Math.min(nextBatchCount * NEWS_BATCH_SIZE, TOTAL_NEWS_COUNT);
-    const controller = new AbortController();
-
-    isLoadingNextBatchRef.current = true;
-    nextBatchAbortRef.current?.abort();
-    nextBatchAbortRef.current = controller;
-
-    try {
-      const data = await fetchNewsItemsFromCandidates(
-        [getShortformEmoticonRankApiUrl(nextPageSize)],
-        controller.signal,
-      );
-
-      setItems((currentItems) =>
-        mergeNewsItems(currentItems, data.slice(0, nextPageSize)),
-      );
-      loadedBatchCountRef.current = nextBatchCount;
-    } catch (error) {
-      if (!(error instanceof Error && error.name === "AbortError")) {
-        console.error("Failed to load next news batch:", error);
-      }
-    } finally {
-      if (nextBatchAbortRef.current === controller) {
-        nextBatchAbortRef.current = null;
-      }
-      isLoadingNextBatchRef.current = false;
-    }
-  }, [initialItems, usePagedEmoticonRankApi]);
-
-  useEffect(() => {
-    if (
-      !usePagedEmoticonRankApi ||
-      items.length === 0 ||
-      items.length >= TOTAL_NEWS_COUNT ||
-      activeIndex < items.length - NEWS_LOAD_AHEAD_COUNT
-    ) {
-      return;
-    }
-
-    void loadNextNewsBatch();
-  }, [activeIndex, items.length, loadNextNewsBatch, usePagedEmoticonRankApi]);
 
   const getLoopTop = useCallback(
     (loopIndex: number) => {
@@ -707,7 +608,7 @@ export function NewsFeed({ items: initialItems }: NewsFeedProps) {
     }
 
     const realIndex = activeIndexRef.current;
-    const isPortrait = portraitThumbRef.current.get(activeItem.id) === true;
+    const isPortrait = portraitThumbRef.current.get(getSlideId(activeItem)) === true;
     const position = getThumbObjectPositionAtProgress(
       activeItem,
       realIndex,
@@ -750,15 +651,6 @@ export function NewsFeed({ items: initialItems }: NewsFeedProps) {
   const goToIndex = useCallback(
     (index: number) => {
       if (items.length === 0 || navigationLockedRef.current) {
-        return;
-      }
-
-      if (
-        usePagedEmoticonRankApi &&
-        index >= items.length &&
-        items.length < TOTAL_NEWS_COUNT
-      ) {
-        void loadNextNewsBatch();
         return;
       }
 
@@ -843,18 +735,19 @@ export function NewsFeed({ items: initialItems }: NewsFeedProps) {
       waitUntilSnappedTo,
       freezeThumbObjectPosition,
       getLoopTop,
-      loadNextNewsBatch,
-      usePagedEmoticonRankApi,
     ],
   );
 
   const getArticleHref = useCallback(
-    (item: NewsItem) => {
+    (item: PhotoSlideItem) => {
+      const mobileUrl = normalizeNateUrl(item.mobileUrl);
+      const pcUrl = normalizeNateUrl(item.pcUrl);
+
       if (isMobileDevice) {
-        return item.mobileLink ?? item.link;
+        return mobileUrl || pcUrl;
       }
 
-      return item.pcLink ?? item.link;
+      return pcUrl || mobileUrl;
     },
     [isMobileDevice],
   );
@@ -1085,7 +978,6 @@ export function NewsFeed({ items: initialItems }: NewsFeedProps) {
       }
 
       clearPendingTouchNavigation();
-      nextBatchAbortRef.current?.abort();
     };
   }, [clearGestureTimeout, clearPendingTouchNavigation]);
 
@@ -1301,15 +1193,15 @@ export function NewsFeed({ items: initialItems }: NewsFeedProps) {
 
   const activeSlideItem = items[activeIndex];
   const currentNewsPosition = activeSlideItem != null ? activeIndex + 1 : 0;
-  const totalNewsCount = TOTAL_NEWS_COUNT;
+  const totalNewsCount = items.length;
   const showRankCount =
     Boolean(activeSlideItem) && currentNewsPosition > 0;
 
-  const isPortraitThumb = (item: NewsItem) => portraitThumbRef.current.get(item.id) === true;
+  const isPortraitThumb = (item: PhotoSlideItem) => portraitThumbRef.current.get(getSlideId(item)) === true;
   const isThumbMotionPaused = isGestureActive || isTransitioning;
 
   const getThumbObjectPosition = (
-    item: NewsItem,
+    item: PhotoSlideItem,
     realIndex: number,
     isActiveSlide: boolean,
     loopIndex: number,
@@ -1362,7 +1254,7 @@ export function NewsFeed({ items: initialItems }: NewsFeedProps) {
   const slides = (() => {
     if (!hasLoop) {
       return items.map((item, loopIndex) => ({
-        key: item.id,
+        key: getSlideId(item),
         item,
         realIndex: loopIndex,
         loopIndex,
@@ -1375,19 +1267,19 @@ export function NewsFeed({ items: initialItems }: NewsFeedProps) {
 
     return [
       {
-        key: `clone:tail:${lastItem.id}`,
+        key: `clone:tail:${getSlideId(lastItem)}`,
         item: lastItem,
         realIndex: total - 1,
         loopIndex: 0,
       },
       ...items.map((item, realIndex) => ({
-        key: item.id,
+        key: `${getSlideId(item)}:${realIndex}`,
         item,
         realIndex,
         loopIndex: realIndex + 1,
       })),
       {
-        key: `clone:head:${firstItem.id}`,
+        key: `clone:head:${getSlideId(firstItem)}`,
         item: firstItem,
         realIndex: 0,
         loopIndex: total + 1,
@@ -1445,8 +1337,9 @@ export function NewsFeed({ items: initialItems }: NewsFeedProps) {
                   style={{
                     objectPosition: getThumbObjectPosition(item, realIndex, isActiveSlide, loopIndex),
                   }}
-                  src={item.imageUrl}
-                  alt={item.title}
+                  src={normalizeImageUrl(item.imageUrl)}
+                  referrerPolicy="no-referrer"
+                  alt={cleanText(item.title)}
                   loading={shouldEagerLoadImage(realIndex) ? "eager" : "lazy"}
                   decoding="async"
                   onLoad={(event) => {
@@ -1459,12 +1352,13 @@ export function NewsFeed({ items: initialItems }: NewsFeedProps) {
 
                     // 세로로 긴 이미지 감지(너무 낮으면 대부분 portrait로 잡혀서 threshold를 둔다)
                     const isPortrait = naturalH / naturalW >= 1.35;
-                    const previous = portraitThumbRef.current.get(item.id);
+                    const slideId = getSlideId(item);
+                    const previous = portraitThumbRef.current.get(slideId);
                     if (previous === isPortrait) {
                       return;
                     }
 
-                    portraitThumbRef.current.set(item.id, isPortrait);
+                    portraitThumbRef.current.set(slideId, isPortrait);
                     frozenThumbObjectPositionRef.current.clear();
                     bumpThumbMetaVersion((version) => version + 1);
                   }}
@@ -1475,28 +1369,28 @@ export function NewsFeed({ items: initialItems }: NewsFeedProps) {
 
               <div className={styles.metaBottom}>
                 <div className={styles.sourceRow}>
-                  {item.sourceName ? (
-                    <p className={styles.publisher}>{item.sourceName}</p>
+                  {item.cpName ? (
+                    <p className={styles.publisher}>{cleanText(item.cpName)}</p>
                   ) : (
                     <div className={`${styles.skeleton} ${styles.skeletonPublisher}`}></div>
                   )}
 
-                  {item.recommendationCount !== null ? (
+                  {typeof item.emoticonCnt === "number" ? (
                     <div className={styles.recommendBadge}>
                       <span className={styles.recommendIcon} aria-hidden="true">
                         😶
                       </span>
                       <span className={styles.recommendCount}>
-                        {item.recommendationCount.toLocaleString("ko-KR")}
+                        {item.emoticonCnt.toLocaleString("ko-KR")}
                       </span>
                     </div>
                   ) : (
                     <div className={`${styles.skeleton} ${styles.skeletonRecommendBadge}`}></div>
                   )}
                 </div>
-                <h1 className={styles.title}>{item.title}</h1>
+                <h1 className={styles.title}>{cleanText(item.title)}</h1>
 
-                {item.topComment ? (
+                {item.bestCmtContent ? (
                   <div className={styles.commentInline}>
                     <img
                       src={commentIconSrc}
@@ -1506,7 +1400,7 @@ export function NewsFeed({ items: initialItems }: NewsFeedProps) {
                       height={16}
                       className={styles.commentIcon}
                     />
-                    <p className={styles.commentText}>{item.topComment}</p>
+                    <p className={styles.commentText}>{cleanText(item.bestCmtContent)}</p>
                   </div>
                 ) : (
                   <div className={styles.commentInline}>

@@ -6,8 +6,6 @@
 index.html              # Vite 엔트리 HTML
 vite.config.ts          # Vite 설정 (base, 프록시, out 디렉터리)
 src/                    # React 앱 소스
-server/                 # Express (API + 선택적 정적 서빙)
-lib/                    # 네이트 뉴스 크롤링 (Node 전용)
 data/                   # (있을 경우) 정적 데이터
 public/                 # 정적 자산 (favicon, 이미지 등)
 package.json
@@ -36,7 +34,7 @@ dist/
 .env*
 ```
 
-## 서버에서 Node로 API + 정적 제공 (`npm run start`)
+## 정적 앱 빌드/미리보기
 
 1. **의존성 설치**
    ```bash
@@ -50,40 +48,35 @@ dist/
    ```
    로컬 루트 경로만 쓸 때는 환경변수 없이 `npm run build` (`base=/`).
 
-3. **실행**
+3. **미리보기**
    ```bash
    npm run start
    ```
-   - 기본 `PORT=3000`
-   - **`/api/news`**, **`/shortnews/api/news`** 동일 응답
-   - `out/`을 정적으로 서빙하고 나머지는 SPA 폴백
+   - Vite preview로 `out/` 산출물을 확인합니다.
 
 4. **확인**
-   - `http://서버:PORT/` 또는 Pages base에 맞는 URL (예: `…/shortnews/`)
-   - API: `http://서버:PORT/api/news`
+   - Pages base에 맞는 URL (예: `…/shortnews/`)
+   - 피드 API: `/service/api/photoslides/firstItems` 또는 `VITE_NEWS_API_URL`
 
 ## GitHub Pages / GitLab Pages (정적만)
 
 - 빌드 시 **`GITLAB_PAGES=true`** 또는 **`GITHUB_PAGES=true`** 등으로 `vite.config.ts`의 `base`가 **`/shortnews/`** 가 되도록 맞출 것.
 - 산출물: **`out/`** (GitHub Actions 아티팩트는 이 경로).
 - GitLab Pages는 CI에서 **`out` → `public`** 으로 옮긴 뒤 아티팩트 업로드(`.gitlab-ci.yml` 참고).
-- **정적 호스팅에는 `/api/news` 백엔드가 없습니다.** 피드가 필요하면:
-  - GitLab CI **CI/CD Variables**에 **`VITE_NEWS_API_URL`** = 뉴스 API **절대 URL**을 넣고 빌드하거나,
-  - **`npm run start`** / 별도 Node 호스팅으로 API를 제공하세요.
+- 배포 환경에 `/service/api/photoslides/firstItems` 경로가 없다면 GitLab CI **CI/CD Variables**에 **`VITE_NEWS_API_URL`** = photoslides API **절대 URL**을 넣고 빌드하세요.
 
 ## 배포 전 테스트
 
 - TypeScript / ESLint 통과: `npm run lint`
 - 프로덕션 빌드: `npm run build`
-- (API 필요 시) `npm run start` 후 피드·크롤링 확인
+- `npm run start` 후 피드 표시 확인
 - 반응형·모바일 터치·라우트 `/` · `/news`
 
-## 서버 환경
+## 실행 환경
 
 - **Node.js**: 20.9.0+ (권장 22 LTS)
-- **메모리**: 512MB+ (크롤링·동시 요청 시 여유 권장)
-- **포트**: 개발 API 8787, Vite 5173, `npm run start` 기본 3000
-- **네트워크**: 네이트 API/HTML 접근 가능해야 함
+- **포트**: Vite dev 5173, Vite preview 기본 포트
+- **네트워크**: `/service/api/photoslides/firstItems` 또는 `VITE_NEWS_API_URL` 접근 가능해야 함
 
 ## 주요 사용자 대면 경로
 

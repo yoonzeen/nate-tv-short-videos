@@ -52,21 +52,11 @@ export default defineConfig(({ command }) => {
   },
   server: {
     proxy: {
-      /* 루트 base (일반 dev) */
-      "/api": {
-        target: "http://localhost:8787",
-        changeOrigin: true,
-      },
-      /* base=/shortnews/ 로 dev/미리보기 할 때 */
-      "/shortnews/api": {
-        target: "http://localhost:8787",
-        changeOrigin: true,
-        rewrite: (path) => path.replace(/^\/shortnews/, ""),
-      },
-      /* 로컬에서도 Jenkins/shortform 배포와 같은 Nate API 프록시 사용 */
+      /* 로컬에서도 Jenkins/shortform 배포와 같은 Nate API 프록시 경로 사용 */
       "/service/api": {
-        target: "https://shortform.nate.com",
+        target: "http://api.news.nate.com:8080",
         changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/service\/api/, ""),
       },
     },
   },

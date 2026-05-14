@@ -8,21 +8,21 @@
 - 세로형 전체 화면 스크롤 스냅 피드
 - 자동 진행 progress bar와 일정 시간 후 다음 기사 자동 전환
 - 휠, 터치 스와이프로 이전·다음 기사 이동
-- 기사 제목, 언론사, 공감 수, 대표 댓글 표시
+- 기사 제목, 언론사, 공감 수, 베플 표시
 - 기사 원문(모바일/PC 링크) 새 창 이동
 - 썸네일 켄번스 스타일 CSS 애니메이션(좌우 패닝·확대)
 - 페이지·탭 비활성화 시 progress·애니메이션 일시정지 후 복귀 시 재개
 
 ## 데이터 수집 방식
 
-**API와 HTML 크롤링을 함께** 사용합니다.
+**photoslides API를 직접** 사용합니다.
 
-- 랭킹 목록과 메타(제목, 링크, 이미지, 언론사, 공감 수 등):  
-  `http://api.news.nate.com:8080/ranks/emoticons` JSON API (실패 시 랭킹 HTML 페이지 파싱으로 폴백)
-- 대표 댓글: 기사 페이지 HTML에서 `mid`를 찾은 뒤 댓글 HTML을 요청해 파싱
+- 뉴스 목록과 메타(제목, 링크, 이미지, 언론사, 공감 수, 베플 등):  
+  `/service/api/photoslides/firstItems` JSON API
+- 베플: `firstItems` 응답의 `bestCmtContent`를 사용
 
-랭킹은 API 중심이고, 댓글은 기사·댓글 HTML 크롤링으로 보강합니다.  
-크롤링 로직은 **Node.js 전용**이며 `lib/nateNews.ts`에서 수행하고, 브라우저는 **`GET /api/news`**(Express)로 JSON만 받습니다.
+브라우저가 photoslides API 응답을 받아 앱 내부 피드 형식으로 변환합니다.  
+로컬 개발에서는 Vite 프록시가 `/service/api/*`를 Nate API로 전달합니다.
 
 ## 기술 스택
 
@@ -30,8 +30,6 @@
 - `React` 19, `react-router-dom` 7
 - `TypeScript`
 - `CSS Modules`
-- `Express` — `/api/news` 및 프로덕션 정적 파일 서빙
-- 서버 `fetch` + 정규식 기반 HTML 파싱 (`euc-kr` 디코딩)
 
 ## Node.js 버전
 
@@ -46,7 +44,7 @@
 npm install
 ```
 
-2. 개발 실행 (API + Vite 동시)
+2. 개발 실행
 
 ```bash
 npm run dev
@@ -55,16 +53,16 @@ npm run dev
 3. 브라우저에서 확인
 
 - 프론트: `http://localhost:5173`
-- API는 Vite가 `/api`를 `http://localhost:8787`로 프록시합니다.
+- Vite가 `/service/api`를 Nate API로 프록시합니다.
 
 ## 사용 가능한 스크립트
 
 | 명령 | 설명 |
 |------|------|
-| `npm run dev` | Express(API, 포트 8787) + Vite dev 서버(5173) |
+| `npm run dev` | Vite dev 서버(5173) |
 | `npm run build` | `out/`에 정적 빌드 (`vite build`) |
 | `npm run preview` | 빌드 결과 미리보기(Vite) |
-| `npm run start` | `out/` 정적 + `/api/news` — 기본 포트 3000 (`PORT` 환경변수로 변경) |
+| `npm run start` | 빌드 결과 미리보기(Vite preview) |
 | `npm run lint` | ESLint |
 
 ## 라우트(클라이언트)
@@ -79,8 +77,8 @@ npm run dev
 
 ## API
 
-`GET /api/news` — 쿼리 없음(랭킹 20건). Express `server/index.ts`에서 `buildNateNewsFeed` 결과를 JSON으로 반환합니다.  
-프로덕션에서는 `/api/news`와 **`/shortnews/api/news`** 둘 다 같은 핸들러로 열려 있습니다.
+`GET /service/api/photoslides/firstItems` — photoslides 목록을 반환합니다.  
+앱은 응답의 `data[]`를 내부 피드 아이템으로 변환합니다.
 
 ```ts
 type NateNewsItem = {
@@ -103,8 +101,8 @@ type NateNewsFeed = {
 
 ## 앱 동작 요약
 
-1. 클라이언트가 `/api/news`로 피드 JSON을 요청합니다. (개발 시 Vite 프록시 → 8787)
-2. 서버가 네이트 이모티콘 랭킹으로 목록을 만들고, 설정에 따라 대표 댓글을 보강합니다.
+1. 클라이언트가 `/service/api/photoslides/firstItems`로 피드 JSON을 요청합니다.
+2. `NewsFeed`가 photoslides API 응답을 앱 피드 형식으로 변환합니다.
 3. `NewsFeed`가 세로 스냅 피드로 렌더링합니다.
 4. 카드 progress가 끝나면 다음 카드로 자동 이동합니다.
 5. 탭 전환·포커스 이탈 시 progress와 썸네일 모션이 멈췄다가 복귀 시 이어갑니다.
@@ -118,9 +116,9 @@ type NateNewsFeed = {
 3. 그 외 로컬/일반 빌드 → `/`
 
 - **GitHub Actions**: `.github/workflows/deploy-pages.yml`에서 `GITHUB_PAGES=true` 후 `npm run build`, 산출물은 `out/`.
-- **GitLab Pages**: `.gitlab-ci.yml`에서 `GITLAB_PAGES=true` 후 빌드, `out`을 **`public`**으로 옮겨 업로드(Pages 규칙). Pages는 **정적 파일만**이라 **`/api/news`는 존재하지 않습니다.** 피드를 쓰려면 별도로 두는 **뉴스 API의 전체 URL**을 GitLab **CI/CD Variables**의 **`VITE_NEWS_API_URL`**에 넣고 빌드하세요(예: `https://api.example.com/news` 형태). 클라이언트와 API 도메인이 다르므로 API 쪽에서 **CORS**를 허용해야 합니다.
+- **GitLab Pages**: `.gitlab-ci.yml`에서 `GITLAB_PAGES=true` 후 빌드, `out`을 **`public`**으로 옮겨 업로드(Pages 규칙). 배포 환경에서 `/service/api/photoslides/firstItems` 경로가 열려 있지 않다면 **`VITE_NEWS_API_URL`**에 전체 API URL을 넣고 빌드하세요.
 
-GitHub Pages·정적 호스팅만 쓰는 경우에도 마찬가지로, **`VITE_NEWS_API_URL`**로 외부에 둔 API를 가리키거나, **`npm run start`** 등으로 Node에서 정적 + `/api/news`를 함께 서빙하면 됩니다.
+GitHub Pages·정적 호스팅만 쓰는 경우에도 마찬가지로, **`VITE_NEWS_API_URL`**로 접근 가능한 API 전체 URL을 지정하면 됩니다.
 
 ## 프로젝트 구조
 
@@ -134,27 +132,20 @@ src/
   components/
     NewsFeed.tsx
     NewsFeed.module.css
-server/
-  index.ts             # Express: /api/news, (선택) out 정적 서빙
-lib/
-  nateNews.ts          # 랭킹·댓글 수집, buildNateNewsFeed
 public/                # 정적 자산 (빌드 시 루트로 복사)
 data/                  # (선택) 정적 데이터
 ```
 
 ## 핵심 파일
 
-- `lib/nateNews.ts` — 랭킹 조회, 댓글 보강, `buildNateNewsFeed`
-- `server/index.ts` — API 및 프로덕션 정적 서빙
 - `src/App.tsx` — `BrowserRouter`, `/`·`/news`
 - `src/components/NewsFeed.tsx` — 스냅 피드, 자동 전환, 스와이프·휠, 썸네일 모션
 - `src/components/NewsFeed.module.css` — 뉴스 피드·카드 스타일
 
 ## 참고
 
-- 네이트 HTML은 `euc-kr`일 수 있어 `iconv-lite`로 디코딩합니다.
-- 제목·댓글·언론사 문자열은 디코딩·태그 제거 등 정제 후 노출합니다.
-- 이미지 URL은 네이트 썸네일 프리픽스를 보정해 사용합니다.
+- 제목·베플·언론사 문자열은 디코딩·태그 제거 등 정제 후 노출합니다.
+- 이미지 URL은 API 응답값을 그대로 사용합니다.
 - 메타·OG 태그는 `index.html`에 정적으로 두었습니다(빌드 `base`에 맞춰 에셋 경로는 Vite가 처리).
 
 ## 검증

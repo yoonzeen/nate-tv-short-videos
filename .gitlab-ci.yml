@@ -1,7 +1,7 @@
-# GitLab Pages — 정적 파일만 호스팅되므로 /api/news 서버는 없습니다.
-# 뉴스 피드가 필요하면 Vercel 등에서 API를 배포한 뒤, CI/CD Variables에 아래를 설정하세요(마스크하지 말 것).
-#   VITE_NEWS_API_URL = https://YOUR_VERCEL_APP.vercel.app/api/news
-# (변수 없이 빌드하면 브라우저가 GitLab Pages origin의 .../shortnews/api/news 를 호출 → 404)
+# GitLab Pages — 정적 파일만 호스팅됩니다.
+# 배포 환경에서 /service/api/photoslides/firstItems 경로가 없으면
+# CI/CD Variables에 아래를 설정하세요(마스크하지 말 것).
+#   VITE_NEWS_API_URL = https://example.com/service/api/photoslides/firstItems
 #
 # 빌드 산출물은 Pages 규칙상 `public/` 이어서 out → public 으로 둡니다.
 image: node:22
