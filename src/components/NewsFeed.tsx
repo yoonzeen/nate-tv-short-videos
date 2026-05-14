@@ -10,7 +10,11 @@ import {
 import styles from "./NewsFeed.module.css";
 
 const SLIDE_DURATION_MS = 5_000;
+const THUMB_MOTION_DURATION_MS = 3_800;
 const SWIPE_ANIMATION_RESUME_DELAY_MS = 180;
+const SCROLL_SETTLE_SYNC_DELAY_MS = SWIPE_ANIMATION_RESUME_DELAY_MS + 80;
+const TOUCH_NATIVE_SCROLL_DELTA_PX = 4;
+const TOUCH_FALLBACK_NAVIGATION_DELAY_MS = 40;
 const TOTAL_NEWS_COUNT = 30;
 const NEWS_BATCH_SIZE = TOTAL_NEWS_COUNT;
 const NEWS_LOAD_AHEAD_COUNT = 3;
@@ -75,6 +79,35 @@ function getThumbMotionVariant(item: NewsItem, index: number): ThumbMotionVarian
   const seed = hashText(`${item.id}:${index}`);
 
   return THUMB_MOTION_VARIANTS[seed % THUMB_MOTION_VARIANTS.length];
+}
+
+function getThumbMotionProgress(slideProgress: number) {
+  return Math.min(
+    1,
+    Math.max(0, slideProgress) * (SLIDE_DURATION_MS / THUMB_MOTION_DURATION_MS),
+  );
+}
+
+function getThumbObjectPositionAtProgress(
+  item: NewsItem,
+  index: number,
+  progress: number,
+  isPortrait: boolean,
+) {
+  const clamped = Math.max(0, Math.min(1, progress));
+
+  if (isPortrait) {
+    const posY = 100 * clamped;
+    return `50.00% ${posY.toFixed(2)}%`;
+  }
+
+  const variant = getThumbMotionVariant(item, index);
+  const posX =
+    variant === "panLeft"
+      ? 50 + THUMB_OBJECT_POS_DELTA - THUMB_OBJECT_POS_DELTA * 2 * clamped
+      : 50 - THUMB_OBJECT_POS_DELTA + THUMB_OBJECT_POS_DELTA * 2 * clamped;
+
+  return `${posX.toFixed(2)}% 50%`;
 }
 
 function decodeHtmlEntities(value: string) {
@@ -282,12 +315,15 @@ export function NewsFeed({ items: initialItems }: NewsFeedProps) {
   const isGestureActiveRef = useRef(false);
   const isTransitioningRef = useRef(false);
   const touchStartYRef = useRef<number | null>(null);
+  const touchStartScrollTopRef = useRef<number | null>(null);
+  const touchMovedWithScrollRef = useRef(false);
   const slideElapsedRef = useRef<number>(0);
   const lastTickRef = useRef<number | null>(null);
   const rafRef = useRef<number | null>(null);
   const scrollRafRef = useRef<number | null>(null);
   const gestureTimeoutRef = useRef<number | null>(null);
   const scrollEndTimeoutRef = useRef<number | null>(null);
+  const pendingTouchNavigationTimeoutRef = useRef<number | null>(null);
   const loadedBatchCountRef = useRef(0);
   const isLoadingNextBatchRef = useRef(false);
   const nextBatchAbortRef = useRef<AbortController | null>(null);
@@ -671,14 +707,15 @@ export function NewsFeed({ items: initialItems }: NewsFeedProps) {
     }
 
     const realIndex = activeIndexRef.current;
-    const clamped = Math.max(0, Math.min(1, progress));
-    const variant = getThumbMotionVariant(activeItem, realIndex);
-    const posX =
-      variant === "panLeft"
-        ? 50 + THUMB_OBJECT_POS_DELTA - THUMB_OBJECT_POS_DELTA * 2 * clamped
-        : 50 - THUMB_OBJECT_POS_DELTA + THUMB_OBJECT_POS_DELTA * 2 * clamped;
+    const isPortrait = portraitThumbRef.current.get(activeItem.id) === true;
+    const position = getThumbObjectPositionAtProgress(
+      activeItem,
+      realIndex,
+      getThumbMotionProgress(progress),
+      isPortrait,
+    );
 
-    frozenThumbObjectPositionRef.current.set(loopIndex, `${posX.toFixed(2)}% 50%`);
+    frozenThumbObjectPositionRef.current.set(loopIndex, position);
   }, [items, progress]);
 
   const waitUntilSnappedTo = useCallback(
@@ -829,6 +866,13 @@ export function NewsFeed({ items: initialItems }: NewsFeedProps) {
     }
   }, []);
 
+  const clearPendingTouchNavigation = useCallback(() => {
+    if (pendingTouchNavigationTimeoutRef.current !== null) {
+      window.clearTimeout(pendingTouchNavigationTimeoutRef.current);
+      pendingTouchNavigationTimeoutRef.current = null;
+    }
+  }, []);
+
   const markGestureActive = useCallback(
     (resumeDelayMs?: number) => {
       freezeThumbObjectPosition();
@@ -933,6 +977,20 @@ export function NewsFeed({ items: initialItems }: NewsFeedProps) {
     );
   }, [hasLoop, items.length, loopCount, startLoopIndex, hardSetFeedScrollTop]);
 
+  const scheduleScrollSettledSync = useCallback(
+    (delayMs = SCROLL_SETTLE_SYNC_DELAY_MS) => {
+      if (scrollEndTimeoutRef.current !== null) {
+        window.clearTimeout(scrollEndTimeoutRef.current);
+      }
+
+      scrollEndTimeoutRef.current = window.setTimeout(() => {
+        scrollEndTimeoutRef.current = null;
+        updateActiveIndex({ allowNonSnapped: true });
+      }, delayMs);
+    },
+    [updateActiveIndex],
+  );
+
   useEffect(() => {
     scrollRafRef.current = window.requestAnimationFrame(() => {
       scrollRafRef.current = null;
@@ -989,8 +1047,8 @@ export function NewsFeed({ items: initialItems }: NewsFeedProps) {
     });
   }, [items, loopCount, startLoopIndex, updateActiveIndex]);
 
-  // 팬 애니메이션은 "활성 슬라이드일 때만" 클래스가 붙도록 해서
-  // 매번 0프레임부터 시작하게 만든다(중간 위치 재개 방지).
+  // 전환/제스처 중에는 object-position을 frozen 값으로 고정하고,
+  // 슬라이드가 멈춘 뒤에만 progress 애니메이션을 재개한다.
 
   useEffect(() => {
     activeIndexRef.current = activeIndex;
@@ -1026,9 +1084,10 @@ export function NewsFeed({ items: initialItems }: NewsFeedProps) {
         window.clearTimeout(scrollEndTimeoutRef.current);
       }
 
+      clearPendingTouchNavigation();
       nextBatchAbortRef.current?.abort();
     };
-  }, [clearGestureTimeout]);
+  }, [clearGestureTimeout, clearPendingTouchNavigation]);
 
   useEffect(() => {
     if (items.length === 0 || loading) {
@@ -1096,14 +1155,18 @@ export function NewsFeed({ items: initialItems }: NewsFeedProps) {
   const handleScroll = () => {
     if (!suppressScrollGestureRef.current) {
       markGestureActive(SWIPE_ANIMATION_RESUME_DELAY_MS);
+      const startScrollTop = touchStartScrollTopRef.current;
+      const currentScrollTop = feedRef.current?.scrollTop ?? null;
 
-      if (scrollEndTimeoutRef.current !== null) {
-        window.clearTimeout(scrollEndTimeoutRef.current);
+      if (
+        startScrollTop !== null &&
+        currentScrollTop !== null &&
+        Math.abs(currentScrollTop - startScrollTop) > TOUCH_NATIVE_SCROLL_DELTA_PX
+      ) {
+        touchMovedWithScrollRef.current = true;
       }
-      scrollEndTimeoutRef.current = window.setTimeout(() => {
-        scrollEndTimeoutRef.current = null;
-        updateActiveIndex({ allowNonSnapped: true });
-      }, SWIPE_ANIMATION_RESUME_DELAY_MS + 40);
+
+      scheduleScrollSettledSync();
     }
 
     if (scrollRafRef.current !== null) {
@@ -1117,18 +1180,41 @@ export function NewsFeed({ items: initialItems }: NewsFeedProps) {
   };
 
   const handleTouchStart = (event: TouchEvent<HTMLElement>) => {
+    clearPendingTouchNavigation();
     markGestureActive();
     touchStartYRef.current = event.touches[0]?.clientY ?? null;
+    touchStartScrollTopRef.current = feedRef.current?.scrollTop ?? null;
+    touchMovedWithScrollRef.current = false;
   };
 
   const handleTouchMove = () => {
     markGestureActive();
+    const startScrollTop = touchStartScrollTopRef.current;
+    const currentScrollTop = feedRef.current?.scrollTop ?? null;
+
+    if (
+      startScrollTop !== null &&
+      currentScrollTop !== null &&
+      Math.abs(currentScrollTop - startScrollTop) > TOUCH_NATIVE_SCROLL_DELTA_PX
+    ) {
+      touchMovedWithScrollRef.current = true;
+    }
   };
 
   const handleTouchEnd = (event: TouchEvent<HTMLElement>) => {
     const startY = touchStartYRef.current;
     const endY = event.changedTouches[0]?.clientY ?? null;
+    const startScrollTop = touchStartScrollTopRef.current;
+    const currentScrollTop = feedRef.current?.scrollTop ?? null;
+    const usedNativeScroll =
+      touchMovedWithScrollRef.current ||
+      (startScrollTop !== null &&
+        currentScrollTop !== null &&
+        Math.abs(currentScrollTop - startScrollTop) > TOUCH_NATIVE_SCROLL_DELTA_PX);
+
     touchStartYRef.current = null;
+    touchStartScrollTopRef.current = null;
+    touchMovedWithScrollRef.current = false;
 
     if (startY === null || endY === null) {
       markGestureActive(SWIPE_ANIMATION_RESUME_DELAY_MS);
@@ -1143,16 +1229,38 @@ export function NewsFeed({ items: initialItems }: NewsFeedProps) {
 
     markGestureActive(SWIPE_ANIMATION_RESUME_DELAY_MS);
 
-    if (deltaY > 0) {
-      goToIndex(activeIndexRef.current + 1);
+    if (usedNativeScroll) {
+      // 사용자가 이미 컨테이너를 움직인 플리킹은 브라우저 관성/스냅에 맡긴다.
+      // 여기서 smooth scroll을 다시 걸면 일부 모바일에서 두 스크롤이 충돌해 덜컹거린다.
+      scheduleScrollSettledSync();
       return;
     }
 
-    goToIndex(activeIndexRef.current - 1);
+    const fallbackStartScrollTop = currentScrollTop;
+    const direction = deltaY > 0 ? 1 : -1;
+    clearPendingTouchNavigation();
+    pendingTouchNavigationTimeoutRef.current = window.setTimeout(() => {
+      pendingTouchNavigationTimeoutRef.current = null;
+      const nextScrollTop = feedRef.current?.scrollTop ?? null;
+      const nativeScrollStarted =
+        fallbackStartScrollTop !== null &&
+        nextScrollTop !== null &&
+        Math.abs(nextScrollTop - fallbackStartScrollTop) > TOUCH_NATIVE_SCROLL_DELTA_PX;
+
+      if (nativeScrollStarted) {
+        scheduleScrollSettledSync();
+        return;
+      }
+
+      goToIndex(activeIndexRef.current + direction);
+    }, TOUCH_FALLBACK_NAVIGATION_DELAY_MS);
   };
 
   const handleTouchCancel = () => {
+    clearPendingTouchNavigation();
     touchStartYRef.current = null;
+    touchStartScrollTopRef.current = null;
+    touchMovedWithScrollRef.current = false;
     markGestureActive(SWIPE_ANIMATION_RESUME_DELAY_MS);
   };
 
@@ -1198,6 +1306,7 @@ export function NewsFeed({ items: initialItems }: NewsFeedProps) {
     Boolean(activeSlideItem) && currentNewsPosition > 0;
 
   const isPortraitThumb = (item: NewsItem) => portraitThumbRef.current.get(item.id) === true;
+  const isThumbMotionPaused = isGestureActive || isTransitioning;
 
   const getThumbObjectPosition = (
     item: NewsItem,
@@ -1206,16 +1315,15 @@ export function NewsFeed({ items: initialItems }: NewsFeedProps) {
     loopIndex: number,
   ) => {
     const getStartPosition = () => {
-      if (isPortraitThumb(item)) {
-        return "50.00% 0.00%";
-      }
-
-      const variant = getThumbMotionVariant(item, realIndex);
-      const posX = variant === "panLeft" ? 50 + THUMB_OBJECT_POS_DELTA : 50 - THUMB_OBJECT_POS_DELTA;
-      return `${posX.toFixed(2)}% 50%`;
+      return getThumbObjectPositionAtProgress(
+        item,
+        realIndex,
+        0,
+        isPortraitThumb(item),
+      );
     };
 
-    if (!isActiveSlide) {
+    if (!isActiveSlide || isThumbMotionPaused) {
       const frozen = frozenThumbObjectPositionRef.current.get(loopIndex);
       if (frozen) {
         return frozen;
@@ -1228,23 +1336,13 @@ export function NewsFeed({ items: initialItems }: NewsFeedProps) {
       return start;
     }
 
-    const clamped = Math.max(0, Math.min(1, progress));
-
-    if (isPortraitThumb(item)) {
-      const posY = 100 * clamped;
-      const next = `50.00% ${posY.toFixed(2)}%`;
-      frozenThumbObjectPositionRef.current.set(loopIndex, next);
-      return next;
-    }
-
-    const variant = getThumbMotionVariant(item, realIndex);
-    const posX =
-      variant === "panLeft"
-        ? 50 + THUMB_OBJECT_POS_DELTA - THUMB_OBJECT_POS_DELTA * 2 * clamped
-        : 50 - THUMB_OBJECT_POS_DELTA + THUMB_OBJECT_POS_DELTA * 2 * clamped;
-
-    // progress가 멈춘 상태(페이지 비활성/제스처/전환)에서도 같은 object-position을 유지하면 “정지”처럼 보인다.
-    const next = `${posX.toFixed(2)}% 50%`;
+    // 최신 위치를 캐시해두면 다음 제스처/전환 중 같은 자리에서 멈출 수 있다.
+    const next = getThumbObjectPositionAtProgress(
+      item,
+      realIndex,
+      getThumbMotionProgress(progress),
+      isPortraitThumb(item),
+    );
     frozenThumbObjectPositionRef.current.set(loopIndex, next);
     return next;
   };
@@ -1386,7 +1484,7 @@ export function NewsFeed({ items: initialItems }: NewsFeedProps) {
                   {item.recommendationCount !== null ? (
                     <div className={styles.recommendBadge}>
                       <span className={styles.recommendIcon} aria-hidden="true">
-                        🙂
+                        😶
                       </span>
                       <span className={styles.recommendCount}>
                         {item.recommendationCount.toLocaleString("ko-KR")}
