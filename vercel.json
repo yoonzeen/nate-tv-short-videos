@@ -14,8 +14,7 @@
   ],
   "functions": {
     "api/photoslides/firstItems.ts": {
-      "maxDuration": 10,
-      "includeFiles": "lib/**"
+      "maxDuration": 10
     }
   }
 }

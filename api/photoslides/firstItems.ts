@@ -9,7 +9,24 @@ type VercelResponse = {
   end(): void;
 };
 
-import { fetchPhotoSlidesFirstItems } from "../../lib/nateNews";
+const PHOTO_SLIDES_API_URL =
+  process.env.NATE_PHOTO_SLIDES_API_URL?.trim() ||
+  "http://api.news.nate.com:8080/photoslides/firstItems";
+
+async function fetchPhotoSlidesFirstItems() {
+  const response = await fetch(PHOTO_SLIDES_API_URL, {
+    cache: "no-store",
+    headers: {
+      accept: "application/json",
+    },
+  });
+
+  if (!response.ok) {
+    throw new Error(`photoslides ${response.status}`);
+  }
+
+  return response.json();
+}
 
 export default async function handler(
   req: VercelRequest,
