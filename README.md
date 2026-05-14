@@ -24,8 +24,7 @@
 브라우저가 photoslides API 응답을 받아 앱 내부 피드 형식으로 변환합니다.  
 로컬 개발에서는 Vite 프록시가 `/service/api/*`를 `http://api.news.nate.com:8080/*`로 전달합니다.  
 `shortform.nate.com/shortnews` 배포에서는 `https://shortform.nate.com/service/api/photoslides/firstItems`를 사용합니다.  
-Vercel 배포에서는 `/service/api/photoslides/firstItems`를 Vercel Function이 `http://api.news.nate.com:8080/photoslides/firstItems`로 프록시합니다.
-단, `api.news.nate.com:8080`이 외부망에서 접근되지 않는 배포 환경이면 Vercel 프로젝트 환경변수 `NATE_PHOTO_SLIDES_API_URL`에 접근 가능한 프록시 URL을 지정해야 합니다.
+Vercel 배포에서는 `/service/api/photoslides/firstItems`를 Vercel Function이 `https://shortform.nate.com/service/api/photoslides/firstItems`로 프록시합니다.
 
 ## 기술 스택
 
@@ -124,7 +123,7 @@ type NatePhotoSlidesResponse = {
 3. 그 외 로컬/일반 빌드 → `/`
 
 - **GitHub Actions**: `.github/workflows/deploy-pages.yml`에서 `GITHUB_PAGES=true` 후 `npm run build`, 산출물은 `out/`.
-- **Vercel**: `/service/api/photoslides/firstItems`가 Vercel Function `/api/photoslides/firstItems`로 rewrite됩니다. Vercel에서 기본 Nate API에 접근할 수 없으면 `NATE_PHOTO_SLIDES_API_URL` 환경변수에 접근 가능한 프록시 URL을 설정해야 합니다.
+- **Vercel**: `/service/api/photoslides/firstItems`가 Vercel Function `/api/photoslides/firstItems`로 rewrite되고, Function은 `https://shortform.nate.com/service/api/photoslides/firstItems`를 호출합니다. 필요하면 `NATE_PHOTO_SLIDES_API_URL`로 upstream을 덮어쓸 수 있습니다.
 - **GitLab Pages 등 정적 호스팅**: 기본 API는 `http://api.news.nate.com:8080/photoslides/firstItems`입니다. 배포 환경에서 다른 프록시를 써야 하면 **`VITE_NEWS_API_URL`**에 전체 API URL을 넣고 빌드하세요.
 
 GitHub Pages·정적 호스팅만 쓰는 경우에도 마찬가지로, **`VITE_NEWS_API_URL`**로 접근 가능한 API 전체 URL을 지정하면 됩니다.

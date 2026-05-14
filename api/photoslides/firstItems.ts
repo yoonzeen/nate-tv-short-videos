@@ -11,7 +11,7 @@ type VercelResponse = {
 
 const PHOTO_SLIDES_API_URL =
   process.env.NATE_PHOTO_SLIDES_API_URL?.trim() ||
-  "http://api.news.nate.com:8080/photoslides/firstItems";
+  "https://shortform.nate.com/service/api/photoslides/firstItems";
 
 function getErrorMessage(error: unknown) {
   if (error instanceof Error) {
@@ -26,12 +26,6 @@ function getErrorMessage(error: unknown) {
 }
 
 async function fetchPhotoSlidesFirstItems() {
-  if (process.env.VERCEL && !process.env.NATE_PHOTO_SLIDES_API_URL?.trim()) {
-    throw new Error(
-      "NATE_PHOTO_SLIDES_API_URL is required on Vercel because the default Nate API is not publicly reachable.",
-    );
-  }
-
   const response = await fetch(PHOTO_SLIDES_API_URL, {
     cache: "no-store",
     headers: {
