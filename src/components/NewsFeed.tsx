@@ -1477,7 +1477,7 @@ export function NewsFeed({ items: initialItems }: NewsFeedProps) {
                 <a
                   href={getArticleHref(item)}
                   className={styles.cta}
-                  target="_blank"
+                  target="_self"
                   rel="noopener noreferrer"
                 >
                   기사 보러 가기
