@@ -47,6 +47,12 @@ body > * {
   max-width: 500px;
 }
 
+@media (orientation: landscape) {
+  body > * {
+    max-width: none;
+  }
+}
+
 main {
   flex: 1;
 }

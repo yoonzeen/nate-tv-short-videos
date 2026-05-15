@@ -45,6 +45,13 @@
   pointer-events: none;
 }
 
+@media (orientation: landscape) {
+  .topOverlay,
+  .bottomOverlay {
+    max-width: none;
+  }
+}
+
 .brand {
   font-size: 1.05rem;
   font-weight: 700;

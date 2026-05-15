@@ -7,6 +7,7 @@ import {
   useState,
   type TouchEvent,
 } from "react";
+import { sendPV } from "../utils";
 import styles from "./NewsFeed.module.css";
 
 const SLIDE_DURATION_MS = 5_000;
@@ -557,6 +558,44 @@ export function NewsFeed({ items: initialItems }: NewsFeedProps) {
       controller.abort();
     };
   }, [initialItems, newsApiCandidates]);
+
+  useEffect(() => {
+    const feed = feedRef.current;
+    if (!feed || typeof IntersectionObserver === "undefined" || items.length === 0) {
+      return;
+    }
+
+    const visibleSlides = new Set<Element>();
+    const observer = new IntersectionObserver(
+      (entries) => {
+        for (const entry of entries) {
+          if (entry.isIntersecting && entry.intersectionRatio >= 0.6) {
+            if (!visibleSlides.has(entry.target)) {
+              visibleSlides.add(entry.target);
+              sendPV();
+            }
+          } else {
+            visibleSlides.delete(entry.target);
+          }
+        }
+      },
+      {
+        root: feed,
+        threshold: [0, 0.6],
+      },
+    );
+
+    for (const element of itemRefs.current) {
+      if (element) {
+        observer.observe(element);
+      }
+    }
+
+    return () => {
+      observer.disconnect();
+      visibleSlides.clear();
+    };
+  }, [items.length, loopCount]);
 
   const getLoopTop = useCallback(
     (loopIndex: number) => {
