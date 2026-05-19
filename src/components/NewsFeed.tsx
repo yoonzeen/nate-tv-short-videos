@@ -23,6 +23,7 @@ const SHORTFORM_PHOTO_SLIDES_FIRST_ITEMS_API_URL =
 const NATE_PHOTO_SLIDES_FIRST_ITEMS_API_URL =
   "http://api.news.nate.com:8080/photoslides/firstItems";
 const ARTICLE_RETURN_STATE_STORAGE_KEY = "natetv-shorts:return-state";
+const NATE_VIEW_THUMB_IMAGE_PREFIX = "https://thumbnews.nateimg.co.kr/view610/";
 
 const THUMB_MOTION_VARIANTS = ["panLeft", "panRight"] as const;
 type ThumbMotionVariant = (typeof THUMB_MOTION_VARIANTS)[number];
@@ -145,6 +146,19 @@ function normalizeNateUrl(value: string) {
 
 function normalizeImageUrl(value: string) {
   const normalizedValue = normalizeNateUrl(value);
+
+  if (normalizedValue.startsWith(NATE_VIEW_THUMB_IMAGE_PREFIX)) {
+    const encodedOriginalUrl = normalizedValue.slice(NATE_VIEW_THUMB_IMAGE_PREFIX.length);
+
+    try {
+      const originalUrl = decodeURIComponent(encodedOriginalUrl);
+      if (/\.gif(?:[?#]|$)/i.test(originalUrl)) {
+        return normalizeNateUrl(originalUrl);
+      }
+    } catch {
+      return normalizedValue;
+    }
+  }
 
   return normalizedValue;
 }
