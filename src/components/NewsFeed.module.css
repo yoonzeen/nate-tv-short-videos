@@ -63,14 +63,6 @@
   align-items: center;
 }
 
-.brandCount {
-  display: inline-block;
-  margin-top: 4px;
-  color: rgba(255, 255, 255, 0.72);
-  font-size: 0.78rem;
-  font-weight: 600;
-}
-
 .snapItem {
   height: var(--feed-height, 100svh);
   scroll-snap-align: start;

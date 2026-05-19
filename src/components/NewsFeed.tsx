@@ -22,6 +22,7 @@ const SHORTFORM_PHOTO_SLIDES_FIRST_ITEMS_API_URL =
   "https://shortform.nate.com/service/api/photoslides/firstItems";
 const NATE_PHOTO_SLIDES_FIRST_ITEMS_API_URL =
   "http://api.news.nate.com:8080/photoslides/firstItems";
+const ARTICLE_RETURN_STATE_STORAGE_KEY = "natetv-shorts:return-state";
 
 const THUMB_MOTION_VARIANTS = ["panLeft", "panRight"] as const;
 type ThumbMotionVariant = (typeof THUMB_MOTION_VARIANTS)[number];
@@ -47,6 +48,13 @@ type NewsFeedProps = {
 
 type NatePhotoSlidesResponse = {
   data?: PhotoSlideItem[];
+};
+
+type ArticleReturnState = {
+  slideId: string;
+  realIndex: number;
+  elapsedMs: number;
+  savedAt: number;
 };
 
 const ARTICLE_ID_PATTERN = /\/view\/(\d{8}n\d+)/i;
@@ -143,6 +151,64 @@ function normalizeImageUrl(value: string) {
 
 function getArticleId(value: string) {
   return normalizeNateUrl(value).match(ARTICLE_ID_PATTERN)?.[1] ?? null;
+}
+
+function getStoredArticleReturnState() {
+  if (typeof window === "undefined") {
+    return null;
+  }
+
+  try {
+    const raw = window.sessionStorage.getItem(ARTICLE_RETURN_STATE_STORAGE_KEY);
+    if (!raw) {
+      return null;
+    }
+
+    const parsed = JSON.parse(raw) as Partial<ArticleReturnState>;
+    if (
+      typeof parsed.slideId !== "string" ||
+      typeof parsed.realIndex !== "number" ||
+      typeof parsed.elapsedMs !== "number"
+    ) {
+      return null;
+    }
+
+    return {
+      slideId: parsed.slideId,
+      realIndex: parsed.realIndex,
+      elapsedMs: Math.max(0, Math.min(parsed.elapsedMs, SLIDE_DURATION_MS)),
+      savedAt: typeof parsed.savedAt === "number" ? parsed.savedAt : Date.now(),
+    } satisfies ArticleReturnState;
+  } catch {
+    return null;
+  }
+}
+
+function storeArticleReturnState(state: ArticleReturnState) {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  try {
+    window.sessionStorage.setItem(
+      ARTICLE_RETURN_STATE_STORAGE_KEY,
+      JSON.stringify(state),
+    );
+  } catch {
+    // 세션 스토리지를 사용할 수 없는 환경에서는 기본 뒤로가기 동작만 유지한다.
+  }
+}
+
+function clearStoredArticleReturnState() {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  try {
+    window.sessionStorage.removeItem(ARTICLE_RETURN_STATE_STORAGE_KEY);
+  } catch {
+    // ignore
+  }
 }
 
 function shouldUseMobileArticleUrl() {
@@ -288,8 +354,6 @@ async function fetchNewsItemsFromCandidates(urls: string[], signal: AbortSignal)
   throw lastError ?? new Error("news request failed");
 }
 
-const commentIconSrc = `${import.meta.env.BASE_URL}images/ico-reple.png`;
-
 export function NewsFeed({ items: initialItems }: NewsFeedProps) {
   const [items, setItems] = useState<PhotoSlideItem[]>(() =>
     prepareNewsItems(initialItems ?? []),
@@ -330,6 +394,10 @@ export function NewsFeed({ items: initialItems }: NewsFeedProps) {
   const transitionTokenRef = useRef(0);
   const frozenThumbObjectPositionRef = useRef(new Map<number, string>());
   const portraitThumbRef = useRef(new Map<string, boolean>());
+  const restoredArticleStateRef = useRef<ArticleReturnState | null>(
+    getStoredArticleReturnState(),
+  );
+  const skipNextActiveIndexProgressResetRef = useRef(false);
 
   const newsApiCandidates = useMemo(getPhotoSlidesFirstItemsApiCandidates, []);
 
@@ -809,6 +877,18 @@ export function NewsFeed({ items: initialItems }: NewsFeedProps) {
     [isMobileDevice],
   );
 
+  const handleArticleClick = useCallback((item: PhotoSlideItem, realIndex: number) => {
+    const isCurrentSlide = activeIndexRef.current === realIndex;
+    const elapsedMs = isCurrentSlide ? slideElapsedRef.current : 0;
+
+    storeArticleReturnState({
+      slideId: getSlideId(item),
+      realIndex,
+      elapsedMs,
+      savedAt: Date.now(),
+    });
+  }, []);
+
   const clearGestureTimeout = useCallback(() => {
     if (gestureTimeoutRef.current !== null) {
       window.clearTimeout(gestureTimeoutRef.current);
@@ -973,14 +1053,38 @@ export function NewsFeed({ items: initialItems }: NewsFeedProps) {
       return;
     }
 
-    const initialRealIndex = 0;
-    const initialLoopIndex = startLoopIndex;
+    const restoredArticleState = restoredArticleStateRef.current;
+    const restoredRealIndex =
+      restoredArticleState !== null
+        ? items.findIndex((item) => getSlideId(item) === restoredArticleState.slideId)
+        : -1;
+    const initialRealIndex =
+      restoredRealIndex >= 0
+        ? restoredRealIndex
+        : Math.min(Math.max(restoredArticleState?.realIndex ?? 0, 0), items.length - 1);
+    const initialLoopIndex = hasLoop ? initialRealIndex + 1 : initialRealIndex;
+    const initialElapsedMs =
+      restoredArticleState !== null
+        ? Math.max(0, Math.min(restoredArticleState.elapsedMs, SLIDE_DURATION_MS))
+        : 0;
+    const initialProgress = initialElapsedMs / SLIDE_DURATION_MS;
+    const previousRealIndex = activeIndexRef.current;
+
     activeIndexRef.current = initialRealIndex;
     activeLoopIndexRef.current = initialLoopIndex;
+    if (restoredArticleState !== null && previousRealIndex !== initialRealIndex) {
+      skipNextActiveIndexProgressResetRef.current = true;
+      restoredArticleStateRef.current = null;
+      clearStoredArticleReturnState();
+    }
+    if (restoredArticleState !== null && previousRealIndex === initialRealIndex) {
+      restoredArticleStateRef.current = null;
+      clearStoredArticleReturnState();
+    }
     setActiveIndex(initialRealIndex);
     setActiveLoopIndex(initialLoopIndex);
-    setProgress(0);
-    slideElapsedRef.current = 0;
+    setProgress(initialProgress);
+    slideElapsedRef.current = initialElapsedMs;
     lastTickRef.current = null;
 
     requestAnimationFrame(() => {
@@ -995,7 +1099,7 @@ export function NewsFeed({ items: initialItems }: NewsFeedProps) {
         updateActiveIndex();
       });
     });
-  }, [items, loopCount, startLoopIndex, updateActiveIndex]);
+  }, [hasLoop, items, loopCount, startLoopIndex, updateActiveIndex]);
 
   // 전환/제스처 중에는 object-position을 frozen 값으로 고정하고,
   // 슬라이드가 멈춘 뒤에만 progress 애니메이션을 재개한다.
@@ -1009,6 +1113,11 @@ export function NewsFeed({ items: initialItems }: NewsFeedProps) {
   }, [activeLoopIndex]);
 
   useEffect(() => {
+    if (skipNextActiveIndexProgressResetRef.current) {
+      skipNextActiveIndexProgressResetRef.current = false;
+      return;
+    }
+
     slideElapsedRef.current = 0;
     lastTickRef.current = null;
     setProgress(0);
@@ -1248,12 +1357,6 @@ export function NewsFeed({ items: initialItems }: NewsFeedProps) {
     return <main className={styles.empty}>표시할 뉴스 카드가 없습니다.</main>;
   }
 
-  const activeSlideItem = items[activeIndex];
-  const currentNewsPosition = activeSlideItem != null ? activeIndex + 1 : 0;
-  const totalNewsCount = items.length;
-  const showRankCount =
-    Boolean(activeSlideItem) && currentNewsPosition > 0;
-
   const isPortraitThumb = (item: PhotoSlideItem) => portraitThumbRef.current.get(getSlideId(item)) === true;
   const isThumbMotionPaused = isGestureActive || isTransitioning;
 
@@ -1359,11 +1462,6 @@ export function NewsFeed({ items: initialItems }: NewsFeedProps) {
         <div className={styles.brandRow}>
           <p className={styles.brand}>News Story</p>
         </div>
-        {showRankCount ? (
-          <span className={styles.brandCount}>
-            {currentNewsPosition} / {totalNewsCount}
-          </span>
-        ) : null}
       </div>
 
       <div className={styles.bottomOverlay} aria-hidden="true">
@@ -1446,39 +1544,12 @@ export function NewsFeed({ items: initialItems }: NewsFeedProps) {
                   )}
                 </div>
                 <h1 className={styles.title}>{cleanText(item.title)}</h1>
-
-                {item.bestCmtContent ? (
-                  <div className={styles.commentInline}>
-                    <img
-                      src={commentIconSrc}
-                      alt=""
-                      aria-hidden="true"
-                      width={16}
-                      height={16}
-                      className={styles.commentIcon}
-                    />
-                    <p className={styles.commentText}>{cleanText(item.bestCmtContent)}</p>
-                  </div>
-                ) : (
-                  <div className={styles.commentInline}>
-                    <img
-                      src={commentIconSrc}
-                      alt=""
-                      aria-hidden="true"
-                      width={16}
-                      height={16}
-                      className={styles.commentIcon}
-                    />
-                    <p className={styles.commentText}>
-                      댓글이 없어요. 더 많은 이야기를 나눠볼까요?
-                    </p>
-                  </div>
-                )}
                 <a
                   href={getArticleHref(item)}
                   className={styles.cta}
                   target="_self"
                   rel="noopener noreferrer"
+                  onClick={() => handleArticleClick(item, realIndex)}
                 >
                   기사 보러 가기
                 </a>
