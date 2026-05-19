@@ -275,22 +275,16 @@ function getUniqueNewsItems(items: PhotoSlideItem[]) {
   return uniqueItems;
 }
 
-function shuffleNewsItems(items: PhotoSlideItem[]) {
-  const shuffledItems = [...items];
-
-  for (let index = shuffledItems.length - 1; index > 0; index -= 1) {
-    const swapIndex = Math.floor(Math.random() * (index + 1));
-    const current = shuffledItems[index];
-    const swap = shuffledItems[swapIndex];
-    shuffledItems[index] = swap;
-    shuffledItems[swapIndex] = current;
-  }
-
-  return shuffledItems;
+function prepareNewsItems(items: PhotoSlideItem[]) {
+  return getUniqueNewsItems(items);
 }
 
-function prepareNewsItems(items: PhotoSlideItem[]) {
-  return shuffleNewsItems(getUniqueNewsItems(items));
+function getRandomStartIndex(itemCount: number) {
+  if (itemCount <= 1) {
+    return 0;
+  }
+
+  return Math.floor(Math.random() * itemCount);
 }
 
 function getPhotoSlidesFirstItemsApiCandidates() {
@@ -1061,7 +1055,9 @@ export function NewsFeed({ items: initialItems }: NewsFeedProps) {
     const initialRealIndex =
       restoredRealIndex >= 0
         ? restoredRealIndex
-        : Math.min(Math.max(restoredArticleState?.realIndex ?? 0, 0), items.length - 1);
+        : restoredArticleState !== null
+          ? Math.min(Math.max(restoredArticleState.realIndex, 0), items.length - 1)
+          : getRandomStartIndex(items.length);
     const initialLoopIndex = hasLoop ? initialRealIndex + 1 : initialRealIndex;
     const initialElapsedMs =
       restoredArticleState !== null
