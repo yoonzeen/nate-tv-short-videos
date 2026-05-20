@@ -47,6 +47,10 @@ body > * {
   max-width: 500px;
 }
 
+body {
+  overscroll-behavior-y: none;
+}
+
 @media (orientation: landscape) {
   body > * {
     max-width: none;
