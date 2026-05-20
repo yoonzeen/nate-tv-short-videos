@@ -48,7 +48,7 @@ body > * {
 }
 
 body {
-  overscroll-behavior-y: none;
+  overscroll-behavior-y: contain;
 }
 
 @media (orientation: landscape) {
