@@ -333,9 +333,17 @@
   align-items: center;
   justify-content: center;
   height: 100svh;
-  color: rgba(255, 255, 255, 0.6);
+  background: #ffffff;
+  color: rgba(0, 0, 0, 0.6);
   padding: 24px;
   text-align: center;
+}
+
+@media (prefers-color-scheme: dark) {
+  .empty {
+    background: #050505;
+    color: rgba(255, 255, 255, 0.6);
+  }
 }
 
 /* 스켈레톤 UI */
