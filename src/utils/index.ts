@@ -22,7 +22,7 @@ export function getCookie(key: string) {
 export const sendPV = () => {
     const image = new Image();
     console.log(getCookie('UD3'));
-    image.src = `//stat.nate.com/stat/mstat.tiff?cp_url=[${domainStat}??ndrparam1=${servicecode}&ndrparam2=&ndrparam3=&ndrparam4=&ndrbr=&ndrparam6=&ndrparam9=&ndru3=${getCookie('UD3')}]&t=${getTimestamp()}`;
+    image.src = `//stat.nate.com/stat/mstat.tiff?cp_url=[${domainStat}??ndrparam1=${servicecode}&ndrparam2=&ndrparam3=&ndrparam4=&ndrbr=&ndrparam6=&ndrparam9=&ndru3=${getCookie('UD3')}&ndrl3=${getCookie('ndrn')}]&t=${getTimestamp()}`;
 };
 function getTimestamp() {
 const now = new Date();
