@@ -1266,6 +1266,10 @@ export function NewsFeed({ items: initialItems }: NewsFeedProps) {
   };
 
   const handleTouchStart = (event: TouchEvent<HTMLElement>) => {
+    if (showSwipeGuide) {
+      completeSwipeGuide();
+    }
+
     clearPendingTouchNavigation();
     markGestureActive();
     touchStartYRef.current = event.touches[0]?.clientY ?? null;
@@ -1351,6 +1355,10 @@ export function NewsFeed({ items: initialItems }: NewsFeedProps) {
   };
 
   const handleWheel = useCallback((event: React.WheelEvent) => {
+    if (showSwipeGuide) {
+      completeSwipeGuide();
+    }
+
     event.preventDefault();
     markGestureActive(SWIPE_ANIMATION_RESUME_DELAY_MS);
 
@@ -1365,7 +1373,7 @@ export function NewsFeed({ items: initialItems }: NewsFeedProps) {
     } else {
       goToIndex(activeIndexRef.current - 1);
     }
-  }, [goToIndex, markGestureActive]);
+  }, [completeSwipeGuide, goToIndex, markGestureActive, showSwipeGuide]);
 
   if (loading) {
     return <NewsFeedLoadingSkeleton />;
@@ -1480,6 +1488,11 @@ export function NewsFeed({ items: initialItems }: NewsFeedProps) {
       ref={feedRef}
       className={styles.feed}
       onScroll={handleScroll}
+      onPointerDown={() => {
+        if (showSwipeGuide) {
+          completeSwipeGuide();
+        }
+      }}
       onTouchStart={handleTouchStart}
       onTouchMove={handleTouchMove}
       onTouchEnd={handleTouchEnd}
