@@ -8,6 +8,9 @@ import {
   type TouchEvent,
 } from "react";
 import { sendPV } from "../utils";
+import { hasSeenSwipeGuide, markSwipeGuideSeen } from "../utils/swipeGuide";
+import { NewsFeedLoadingSkeleton } from "./NewsFeedLoadingSkeleton";
+import { SwipeGuideOverlay } from "./SwipeGuideOverlay";
 import styles from "./NewsFeed.module.css";
 
 const SLIDE_DURATION_MS = 5_000;
@@ -375,6 +378,7 @@ export function NewsFeed({ items: initialItems }: NewsFeedProps) {
   const [isTransitioning, setIsTransitioning] = useState(false);
   const [isMobileDevice, setIsMobileDevice] = useState(false);
   const [isPageActive, setIsPageActive] = useState(true);
+  const [showSwipeGuide, setShowSwipeGuide] = useState(false);
   const [, bumpThumbMetaVersion] = useState(0);
   const feedRef = useRef<HTMLElement | null>(null);
   const itemRefs = useRef<Array<HTMLElement | null>>([]);
@@ -408,6 +412,19 @@ export function NewsFeed({ items: initialItems }: NewsFeedProps) {
   const skipNextActiveIndexProgressResetRef = useRef(false);
 
   const newsApiCandidates = useMemo(getPhotoSlidesFirstItemsApiCandidates, []);
+
+  const completeSwipeGuide = useCallback(() => {
+    markSwipeGuideSeen();
+    setShowSwipeGuide(false);
+  }, []);
+
+  useEffect(() => {
+    if (loading || items.length === 0 || hasSeenSwipeGuide()) {
+      return;
+    }
+
+    setShowSwipeGuide(true);
+  }, [loading, items.length]);
 
   const hasLoop = items.length > 1;
   const loopCount = hasLoop ? items.length + 2 : items.length;
@@ -1166,7 +1183,7 @@ export function NewsFeed({ items: initialItems }: NewsFeedProps) {
     }
 
     const shouldPauseSlideProgress =
-      isGestureActive || isTransitioning || !isPageActive;
+      isGestureActive || isTransitioning || !isPageActive || showSwipeGuide;
 
     // progress가 멈춘 상태면 RAF도 멈추고(렌더/CPU 절약),
     // progress가 움직이는 동안에만 썸네일 애니메이션을 함께 재생한다.
@@ -1218,6 +1235,7 @@ export function NewsFeed({ items: initialItems }: NewsFeedProps) {
     items.length,
     loading,
     activeIndex,
+    showSwipeGuide,
   ]);
 
   const handleScroll = () => {
@@ -1350,7 +1368,7 @@ export function NewsFeed({ items: initialItems }: NewsFeedProps) {
   }, [goToIndex, markGestureActive]);
 
   if (loading) {
-    return <main className={styles.empty}>뉴스를 불러오는 중...</main>;
+    return <NewsFeedLoadingSkeleton />;
   }
 
   if (apiError) {
@@ -1468,6 +1486,8 @@ export function NewsFeed({ items: initialItems }: NewsFeedProps) {
       onTouchCancel={handleTouchCancel}
       onWheel={handleWheel}
     >
+      {showSwipeGuide ? <SwipeGuideOverlay onComplete={completeSwipeGuide} /> : null}
+
       <div className={styles.topOverlay}>
         <div className={styles.brandRow}>
           <p className={styles.brand}>News Story</p>

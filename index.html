@@ -5,7 +5,19 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)" />
     <meta name="theme-color" content="#050505" media="(prefers-color-scheme: dark)" />
+    <link rel="stylesheet" href="%BASE_URL%boot-skeleton.css" />
     <style>
+      html,
+      body {
+        margin: 0;
+        background: #050505;
+      }
+
+      #root {
+        width: 100%;
+        min-height: 100svh;
+      }
+
       @media (prefers-color-scheme: dark) {
         html,
         body {
@@ -39,7 +51,33 @@
     </script>
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root">
+      <main
+        class="nf-boot-loading-screen"
+        aria-busy="true"
+        aria-label="뉴스 불러오는 중"
+      >
+        <div class="nf-boot-loading-top">
+          <div class="nf-boot-brand-row">
+            <p class="nf-boot-brand">News Story</p>
+          </div>
+        </div>
+
+        <div class="nf-boot-loading-bottom" aria-hidden="true">
+          <div class="nf-boot-skeleton nf-boot-skeleton-progress"></div>
+        </div>
+
+        <div class="nf-boot-loading-overlay">
+          <div class="nf-boot-loading-meta">
+            <div class="nf-boot-source-row">
+              <div class="nf-boot-skeleton nf-boot-skeleton-publisher"></div>
+            </div>
+            <div class="nf-boot-skeleton nf-boot-skeleton-title"></div>
+            <div class="nf-boot-skeleton nf-boot-skeleton-cta"></div>
+          </div>
+        </div>
+      </main>
+    </div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

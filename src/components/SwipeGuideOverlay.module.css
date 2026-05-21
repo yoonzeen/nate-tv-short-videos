@@ -1,0 +1,72 @@
+@font-face {
+  font-family: "ESCoreDream";
+  src: url("../../public/fonts/SCDream5.otf") format("opentype");
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+}
+
+.overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  width: 100vw;
+  max-width: none;
+  height: 100dvh;
+  height: 100svh;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  align-items: center;
+  padding: 0 24px calc(50px + env(safe-area-inset-bottom, 0px));
+  background: linear-gradient(180deg, rgba(0, 0, 0, 0.6) 0%, rgba(0, 0, 0, 0.8) 100%);
+  font-family: "ESCoreDream", "Noto Sans KR", sans-serif;
+  text-align: center;
+  pointer-events: auto;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+}
+
+.arrowIcon {
+  width: 48px;
+  height: 48px;
+  background-image: url("../../public/images/ico-top.png");
+  background-repeat: no-repeat;
+  background-position: center;
+  background-size: contain;
+  animation: move_arrow_ani 1s ease-out 0s infinite normal none running;
+}
+
+@keyframes move_arrow_ani {
+  0% {
+    transform: translateY(-2px);
+  }
+
+  50% {
+    transform: translateY(2px);
+  }
+
+  100% {
+    transform: translateY(-2px);
+  }
+}
+
+.text {
+  margin: 0;
+  font-size:16px;
+  line-height:22px;
+  letter-spacing:-1px;
+  font-weight:500;
+  color: #ffffff;
+  white-space: pre-line;
+}
+
+.highlight {
+  color: #5f94ff;
+}
