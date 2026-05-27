@@ -3,6 +3,14 @@
 :root {
   --background: #ffffff;
   --foreground: #f8f8f8;
+  --app-max-width: 500px;
+}
+
+/* PC(마우스·트랙패드): 모바일과 같이 좁은 컬럼, 최대 500px */
+@media (hover: hover) and (pointer: fine) {
+  :root {
+    --app-max-width: 500px;
+  }
 }
 
 @media (prefers-color-scheme: dark) {
@@ -45,17 +53,18 @@ body {
   letter-spacing: -0.02em;
 }
 
-/* 전체 앱 컨테이너 최대 너비 500px, 가운데 정렬 */
+/* 전체 앱 컨테이너 최대 너비, 가운데 정렬 */
 body > * {
   width: 100%;
-  max-width: 500px;
+  max-width: var(--app-max-width);
 }
 
 body {
   overscroll-behavior-y: contain;
 }
 
-@media (orientation: landscape) {
+/* 모바일 가로모드만 전체 너비(2열 레이아웃). PC 가로 창은 500px 유지 */
+@media (orientation: landscape) and (pointer: coarse) {
   body > * {
     max-width: none;
   }

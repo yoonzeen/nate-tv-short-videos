@@ -24,7 +24,7 @@
   transform: translateX(-50%);
   z-index: 10;
   width: 100%;
-  max-width: 500px;
+  max-width: var(--app-max-width, 500px);
   padding: 20px 20px 12px;
   pointer-events: none;
 }
@@ -35,7 +35,7 @@
   transform: translateX(-50%);
   z-index: 10;
   width: 100%;
-  max-width: 500px;
+  max-width: var(--app-max-width, 500px);
   padding: 0 18px;
   bottom: calc(
     18px +
@@ -45,7 +45,7 @@
   pointer-events: none;
 }
 
-@media (orientation: landscape) {
+@media (orientation: landscape) and (pointer: coarse) {
   .topOverlay,
   .bottomOverlay {
     max-width: none;
@@ -271,7 +271,7 @@
   background: rgba(255, 255, 255, 0.18);
 }
 
-@media (orientation: landscape) {
+@media (orientation: landscape) and (pointer: coarse) {
   .overlay {
     padding: 18px 24px;
   }

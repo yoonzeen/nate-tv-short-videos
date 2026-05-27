@@ -70,3 +70,13 @@
 .highlight {
   color: #5f94ff;
 }
+
+@media (hover: hover) and (pointer: fine) {
+  .overlay {
+    left: 50%;
+    right: auto;
+    width: min(100vw, var(--app-max-width, 500px));
+    max-width: var(--app-max-width, 500px);
+    transform: translateX(-50%);
+  }
+}
