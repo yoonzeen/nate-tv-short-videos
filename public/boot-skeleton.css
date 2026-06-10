@@ -18,30 +18,6 @@ body {
   overflow: hidden;
 }
 
-.nf-boot-loading-top {
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  z-index: 2;
-  padding: 20px 20px 12px;
-  pointer-events: none;
-}
-
-.nf-boot-brand-row {
-  display: flex;
-  align-items: center;
-}
-
-.nf-boot-brand {
-  margin: 0;
-  font-size: 1.05rem;
-  font-weight: 700;
-  color: #f8f8f8;
-  font-family: "Noto Sans KR", Arial, Helvetica, sans-serif;
-  letter-spacing: -0.02em;
-}
-
 .nf-boot-loading-bottom {
   position: absolute;
   left: 0;

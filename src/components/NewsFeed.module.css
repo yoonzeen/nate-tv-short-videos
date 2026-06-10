@@ -17,18 +17,6 @@
   display: none;
 }
 
-.topOverlay {
-  position: fixed;
-  top: 0;
-  left: 50%;
-  transform: translateX(-50%);
-  z-index: 10;
-  width: 100%;
-  max-width: var(--app-max-width, 500px);
-  padding: 20px 20px 12px;
-  pointer-events: none;
-}
-
 .bottomOverlay {
   position: fixed;
   left: 50%;
@@ -46,21 +34,9 @@
 }
 
 @media (orientation: landscape) and (pointer: coarse) {
-  .topOverlay,
   .bottomOverlay {
     max-width: none;
   }
-}
-
-.brand {
-  font-size: 1.05rem;
-  font-weight: 700;
-  margin: 0;
-}
-
-.brandRow {
-  display: flex;
-  align-items: center;
 }
 
 .snapItem {

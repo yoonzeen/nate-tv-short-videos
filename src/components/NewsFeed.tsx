@@ -1501,12 +1501,6 @@ export function NewsFeed({ items: initialItems }: NewsFeedProps) {
     >
       {showSwipeGuide ? <SwipeGuideOverlay onComplete={completeSwipeGuide} /> : null}
 
-      <div className={styles.topOverlay}>
-        <div className={styles.brandRow}>
-          <p className={styles.brand}>News Story</p>
-        </div>
-      </div>
-
       <div className={styles.bottomOverlay} aria-hidden="true">
         <div className={styles.progressTrack}>
           <div
