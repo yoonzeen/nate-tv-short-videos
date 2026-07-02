@@ -13,25 +13,42 @@ import { NewsFeedLoadingSkeleton } from "./NewsFeedLoadingSkeleton";
 import { SwipeGuideOverlay } from "./SwipeGuideOverlay";
 import styles from "./NewsFeed.module.css";
 
-const SLIDE_DURATION_MS = 5_000;
-const THUMB_MOTION_DURATION_MS = 3_800;
+/** 한 슬라이드가 progress bar로 자동 넘어가기까지 걸리는 시간(ms) */
+const SLIDE_DURATION_MS = 2_000;
+/** 썸네일 object-position 패닝 애니메이션 한 사이클 길이(ms). 슬라이드 duration과 맞춤 */
+const THUMB_MOTION_DURATION_MS = 2_000;
+/** scroll-snap 전환 scroll 애니메이션 길이(ms) */
+const SLIDE_TRANSITION_MS = 320;
+/** scroll-snap 전환 완료 대기 최대 시간(ms) */
+const NAV_SNAP_TIMEOUT_MS = SLIDE_TRANSITION_MS + 120;
+/** 스와이프·전환 직후 progress·썸네일 애니메이션을 멈추는 시간(ms) */
 const SWIPE_ANIMATION_RESUME_DELAY_MS = 180;
+/** 스크롤이 멈춘 뒤 activeIndex를 다시 맞출 때까지 기다리는 시간(ms) */
 const SCROLL_SETTLE_SYNC_DELAY_MS = SWIPE_ANIMATION_RESUME_DELAY_MS + 80;
+/** 네이티브 스크롤이 시작됐다고 볼 scrollTop 변화량(px) */
 const TOUCH_NATIVE_SCROLL_DELTA_PX = 4;
+/** 터치 스와이프 후 programmatic scroll 대신 goToIndex를 쓸 때까지 지연(ms) */
 const TOUCH_FALLBACK_NAVIGATION_DELAY_MS = 40;
+/** shortform·Vite 프록시 등에서 쓰는 photoslides API 상대 경로 */
 const SHORTFORM_PHOTO_SLIDES_FIRST_ITEMS_API_PATH =
   "/service/api/photoslides/firstItems";
+/** shortform.nate.com 배포 환경 photoslides API 전체 URL */
 const SHORTFORM_PHOTO_SLIDES_FIRST_ITEMS_API_URL =
   "https://shortform.nate.com/service/api/photoslides/firstItems";
+/** 네이트 뉴스 API 서버 photoslides firstItems 직접 URL(로컬·프록시 대상) */
 const NATE_PHOTO_SLIDES_FIRST_ITEMS_API_URL =
   "http://api.news.nate.com:8080/photoslides/firstItems";
+/** 기사 상세 진입 후 돌아올 때 슬라이드 위치·progress를 복원하기 위한 sessionStorage 키 */
 const ARTICLE_RETURN_STATE_STORAGE_KEY = "natetv-shorts:return-state";
+/** 네이트 view610 썸네일 CDN URL 접두사 */
 const NATE_VIEW_THUMB_IMAGE_PREFIX = "https://thumbnews.nateimg.co.kr/view610/";
 
+/** 썸네일 패닝 방향 후보(슬라이드마다 해시로 좌/우 중 하나 선택) */
 const THUMB_MOTION_VARIANTS = ["panLeft", "panRight"] as const;
 type ThumbMotionVariant = (typeof THUMB_MOTION_VARIANTS)[number];
 
-const THUMB_OBJECT_POS_DELTA = 10; // crop 없이도 '움직임' 느낌
+/** 썸네일 object-position 이동 폭(%). crop 없이도 움직임을 주기 위한 값 */
+const THUMB_OBJECT_POS_DELTA = 10;
 
 type PhotoSlideItem = {
   title: string;
@@ -61,7 +78,12 @@ type ArticleReturnState = {
   savedAt: number;
 };
 
+/** 기사 URL에서 네이트 기사 ID(예: 20240521n00001)를 추출하는 정규식 */
 const ARTICLE_ID_PATTERN = /\/view\/(\d{8}n\d+)/i;
+
+function easeOutCubic(t: number) {
+  return 1 - (1 - t) ** 3;
+}
 
 function hashText(value: string) {
   let hash = 0;
@@ -396,6 +418,7 @@ export function NewsFeed({ items: initialItems }: NewsFeedProps) {
   const lastTickRef = useRef<number | null>(null);
   const rafRef = useRef<number | null>(null);
   const scrollRafRef = useRef<number | null>(null);
+  const slideScrollRafRef = useRef<number | null>(null);
   const gestureTimeoutRef = useRef<number | null>(null);
   const scrollEndTimeoutRef = useRef<number | null>(null);
   const pendingTouchNavigationTimeoutRef = useRef<number | null>(null);
@@ -714,12 +737,52 @@ export function NewsFeed({ items: initialItems }: NewsFeedProps) {
         return;
       }
 
-      suppressScrollGestureRef.current = true;
-      feed.scrollTo({ top: getLoopTop(loopIndex), behavior });
+      if (slideScrollRafRef.current !== null) {
+        cancelAnimationFrame(slideScrollRafRef.current);
+        slideScrollRafRef.current = null;
+      }
 
-      window.requestAnimationFrame(() => {
-        suppressScrollGestureRef.current = false;
-      });
+      const targetTop = getLoopTop(loopIndex);
+
+      if (behavior === "auto") {
+        suppressScrollGestureRef.current = true;
+        feed.scrollTo({ top: targetTop, behavior: "auto" });
+
+        window.requestAnimationFrame(() => {
+          suppressScrollGestureRef.current = false;
+        });
+        return;
+      }
+
+      const startTop = feed.scrollTop;
+      const startTime = performance.now();
+      const previousSnapType = feed.style.scrollSnapType;
+      const previousBehavior = feed.style.scrollBehavior;
+
+      suppressScrollGestureRef.current = true;
+      feed.style.scrollSnapType = "none";
+      feed.style.scrollBehavior = "auto";
+
+      const step = (now: number) => {
+        const progress = Math.min(1, (now - startTime) / SLIDE_TRANSITION_MS);
+        feed.scrollTop = startTop + (targetTop - startTop) * easeOutCubic(progress);
+
+        if (progress < 1) {
+          slideScrollRafRef.current = requestAnimationFrame(step);
+          return;
+        }
+
+        feed.scrollTop = targetTop;
+        feed.style.scrollSnapType = previousSnapType;
+        feed.style.scrollBehavior = previousBehavior;
+        slideScrollRafRef.current = null;
+
+        window.requestAnimationFrame(() => {
+          suppressScrollGestureRef.current = false;
+        });
+      };
+
+      slideScrollRafRef.current = requestAnimationFrame(step);
     },
     [getLoopTop],
   );
@@ -850,7 +913,7 @@ export function NewsFeed({ items: initialItems }: NewsFeedProps) {
       activeLoopIndexRef.current = targetLoopIndex;
       scrollToLoopIndex(targetLoopIndex, "smooth");
 
-      waitUntilSnappedTo(targetLoopIndex, token, 900, () => {
+      waitUntilSnappedTo(targetLoopIndex, token, NAV_SNAP_TIMEOUT_MS, () => {
         if (transitionTokenRef.current !== token) {
           return;
         }
@@ -1171,6 +1234,11 @@ export function NewsFeed({ items: initialItems }: NewsFeedProps) {
       }
 
       clearPendingTouchNavigation();
+
+      if (slideScrollRafRef.current !== null) {
+        cancelAnimationFrame(slideScrollRafRef.current);
+        slideScrollRafRef.current = null;
+      }
     };
   }, [clearGestureTimeout, clearPendingTouchNavigation]);
 
@@ -1183,7 +1251,7 @@ export function NewsFeed({ items: initialItems }: NewsFeedProps) {
     }
 
     const shouldPauseSlideProgress =
-      isGestureActive || isTransitioning || !isPageActive || showSwipeGuide;
+      isTransitioning || !isPageActive || showSwipeGuide;
 
     // progress가 멈춘 상태면 RAF도 멈추고(렌더/CPU 절약),
     // progress가 움직이는 동안에만 썸네일 애니메이션을 함께 재생한다.
@@ -1229,7 +1297,6 @@ export function NewsFeed({ items: initialItems }: NewsFeedProps) {
     };
   }, [
     goToIndex,
-    isGestureActive,
     isTransitioning,
     isPageActive,
     items.length,
@@ -1240,7 +1307,6 @@ export function NewsFeed({ items: initialItems }: NewsFeedProps) {
 
   const handleScroll = () => {
     if (!suppressScrollGestureRef.current) {
-      markGestureActive(SWIPE_ANIMATION_RESUME_DELAY_MS);
       const startScrollTop = touchStartScrollTopRef.current;
       const currentScrollTop = feedRef.current?.scrollTop ?? null;
 

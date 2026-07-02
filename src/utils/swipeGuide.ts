@@ -1,3 +1,4 @@
+/** 최초 방문 스와이프 가이드를 이미 봤는지 저장하는 localStorage 키 */
 const SWIPE_GUIDE_STORAGE_KEY = "natetv-shorts:swipe-guide-seen";
 
 export function hasSeenSwipeGuide() {

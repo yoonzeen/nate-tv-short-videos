@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 import styles from "./SwipeGuideOverlay.module.css";
 
+/** 스와이프 가이드 레이어를 표시하는 시간(ms). 이후 자동으로 닫힘 */
 const GUIDE_VISIBLE_MS = 3_500;
 
 type SwipeGuideOverlayProps = {
